@@ -29,6 +29,12 @@ namespace HorseRace.Core
         /// <summary>本場的「當日狀態」倍率，開賽前抽定後整場不變。1.0 代表正常發揮。</summary>
         public double Form = 1.0;
 
+        /// <summary>
+        /// 體力驅動強度 0~1，由實體計步器或手機搖動即時餵入，不搖就會自己衰減。
+        /// 1.0 代表達到設定的全力步頻。
+        /// </summary>
+        public double DriveLevel;
+
         public bool Finished;
 
         /// <summary>完賽時間（秒）。以次步長精度內插，讓同步衝線也分得出前後。</summary>
@@ -51,6 +57,7 @@ namespace HorseRace.Core
                 Progress01 = Progress01,
                 Noise = Noise,
                 Form = Form,
+                DriveLevel = DriveLevel,
                 Finished = Finished,
                 FinishTime = FinishTime,
                 FinishRank = FinishRank

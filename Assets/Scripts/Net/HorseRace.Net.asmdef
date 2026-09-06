@@ -1,10 +1,8 @@
 {
-    "name": "HorseRace.View",
-    "rootNamespace": "HorseRace.View",
+    "name": "HorseRace.Net",
+    "rootNamespace": "HorseRace.Net",
     "references": [
-        "HorseRace.Core",
-        "HorseRace.Net",
-        "UnityEngine.UI"
+        "HorseRace.Core"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

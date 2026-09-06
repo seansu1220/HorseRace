@@ -1,6 +1,8 @@
 using System;
 using System.Threading.Tasks;
 using HorseRace.Core;
+using HorseRace.Core.Protocol;
+using HorseRace.Net;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -18,6 +20,8 @@ namespace HorseRace.View
         private static readonly Color SkyColor = new Color(0.52f, 0.70f, 0.87f);
         private static readonly Color BoostAuraColor = new Color(1f, 0.72f, 0.20f);
         private static readonly Color SlowAuraColor = new Color(0.36f, 0.68f, 1f);
+        private static readonly Color DriveAuraLowColor = new Color(0.30f, 0.85f, 0.45f);
+        private static readonly Color DriveAuraHighColor = new Color(1f, 0.35f, 0.15f);
 
         private GameConfig _config;
         private GameLoop _loop;
@@ -34,6 +38,10 @@ namespace HorseRace.View
         private Task<double[]> _oddsTask;
         private int _oddsRaceNumber;
 
+        private RelayClient _relay;
+        private DriveMessage _driveMessage;
+        private float _nextDrivePushTime;
+
         private void Awake()
         {
             Application.targetFrameRate = 60;
@@ -41,6 +49,7 @@ namespace HorseRace.View
             _config = ConfigLoader.Load();
             DebugCapture.AttachIfRequested(gameObject);
             StartNewSession();
+            StartRelay();
         }
 
         private void Update()
@@ -49,12 +58,14 @@ namespace HorseRace.View
 
             HandleDebugInput();
             PumpOddsCalculation();
+            PumpRelayInbox();
 
             _loop.Tick(deltaTime);
 
             UpdateHorses(deltaTime);
             UpdateCamera();
             UpdateHud();
+            PushDriveSnapshot();
         }
 
         private void OnDestroy()
@@ -62,6 +73,12 @@ namespace HorseRace.View
             if (_loop != null)
             {
                 _loop.PhaseEntered -= OnPhaseEntered;
+            }
+
+            if (_relay != null)
+            {
+                _relay.Dispose();
+                _relay = null;
             }
         }
 
@@ -115,6 +132,151 @@ namespace HorseRace.View
                     _hud.ShowResult(_loop.Race, _loop.FinishOrder);
                     break;
             }
+
+            BroadcastPhase();
+        }
+
+        // ---- 中繼伺服器 ----
+
+        private void StartRelay()
+        {
+            NetworkConfig network = _config.Network;
+            if (!network.AutoConnect)
+            {
+                Debug.Log("[RaceDirector] 設定為不自動連線，以單機模式執行。");
+                return;
+            }
+
+            _relay = new RelayClient();
+            _relay.Start(network.RelayUrl, network.ReconnectSeconds);
+            Debug.Log("[RaceDirector] 連往中繼伺服器：" + network.RelayUrl);
+        }
+
+        /// <summary>
+        /// 在主執行緒消化背景收到的訊息。
+        /// 一則壞封包只記 log 並跳過，絕不能讓賽事中斷——這條路徑上的輸入來自現場的手機。
+        /// </summary>
+        private void PumpRelayInbox()
+        {
+            if (_relay == null)
+            {
+                return;
+            }
+
+            string payload;
+            while (_relay.TryDequeue(out payload))
+            {
+                InboundMessage message;
+                try
+                {
+                    message = JsonUtility.FromJson<InboundMessage>(payload);
+                }
+                catch (Exception error)
+                {
+                    Debug.LogWarning("[RaceDirector] 無法解析手機訊息，已丟棄："
+                                     + error.GetType().Name + " - " + error.Message);
+                    continue;
+                }
+
+                if (message == null || string.IsNullOrEmpty(message.t))
+                {
+                    continue;
+                }
+
+                HandleInbound(message);
+            }
+        }
+
+        private void HandleInbound(InboundMessage message)
+        {
+            switch (message.t)
+            {
+                case MessageType.Step:
+                    // 只有比賽進行中才吃步數；引擎自己會擋掉無效閘號與已完賽的馬
+                    if (_loop.Phase == RacePhase.Racing && _loop.Race != null)
+                    {
+                        _loop.Race.AddSteps(message.lane, message.n);
+                    }
+
+                    break;
+
+                case MessageType.Join:
+                    // 目前只需要讓手機拿到目前階段與名單，之後 M4 會在這裡建立玩家錢包
+                    BroadcastPhase();
+                    break;
+            }
+        }
+
+        private void BroadcastPhase()
+        {
+            if (_relay == null || !_relay.IsConnected || _loop.Lineup == null)
+            {
+                return;
+            }
+
+            HorseConfig[] lineup = _loop.Lineup;
+            double[] odds = _loop.Odds;
+
+            HorseInfo[] horses = new HorseInfo[lineup.Length];
+            for (int lane = 0; lane < lineup.Length; lane++)
+            {
+                horses[lane] = new HorseInfo
+                {
+                    id = lane,
+                    name = lineup[lane].Name,
+                    color = lineup[lane].ColorHex,
+                    odds = odds != null && lane < odds.Length ? odds[lane] : 0.0
+                };
+            }
+
+            // 傳結束時間戳而非剩餘秒數，讓手機自行遞減，避免網路抖動造成秒數跳動
+            long endsAt = 0;
+            if (_loop.Phase != RacePhase.Racing)
+            {
+                endsAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                         + (long)(_loop.PhaseRemainingSeconds * 1000.0);
+            }
+
+            PhaseMessage message = new PhaseMessage
+            {
+                phase = _loop.Phase.ToString().ToLowerInvariant(),
+                endsAt = endsAt,
+                race = _loop.RaceNumber,
+                horses = horses
+            };
+
+            _relay.Send(JsonUtility.ToJson(message));
+        }
+
+        /// <summary>把各匹馬的體力驅動強度推回手機，讓搖的人看得到自己的效果。</summary>
+        private void PushDriveSnapshot()
+        {
+            if (_relay == null || !_relay.IsConnected
+                || _loop.Phase != RacePhase.Racing || _loop.Race == null)
+            {
+                return;
+            }
+
+            if (Time.time < _nextDrivePushTime)
+            {
+                return;
+            }
+
+            _nextDrivePushTime = Time.time + (float)(1.0 / _config.Network.SnapshotsPerSecond);
+
+            RaceEngine race = _loop.Race;
+            if (_driveMessage == null || _driveMessage.d == null
+                || _driveMessage.d.Length != race.HorseCount)
+            {
+                _driveMessage = new DriveMessage { d = new float[race.HorseCount] };
+            }
+
+            for (int lane = 0; lane < race.HorseCount; lane++)
+            {
+                _driveMessage.d[lane] = (float)race.DriveLevelOf(lane);
+            }
+
+            _relay.Send(JsonUtility.ToJson(_driveMessage));
         }
 
         // ---- 賠率（背景計算）----
@@ -148,6 +310,9 @@ namespace HorseRace.View
             }
 
             _oddsTask = null;
+
+            // 賠率是在進入 Idle 之後才算完的，要補播一次，手機才看得到數字
+            BroadcastPhase();
         }
 
         /// <summary>
@@ -215,19 +380,30 @@ namespace HorseRace.View
             }
         }
 
+        /// <summary>光環優先序：道具 &gt; 體力驅動。道具是別人動的手腳，比自己出力更需要被看見。</summary>
         private static void UpdateAura(HorseView view, HorseState horse)
         {
             int effectCount = horse.Effects.Count;
-            if (effectCount == 0)
+            if (effectCount > 0)
             {
-                view.SetAura(false, Color.white);
+                EffectKind kind = horse.Effects[effectCount - 1].Kind;
+                view.SetAura(true, kind == EffectKind.Boost ? BoostAuraColor : SlowAuraColor);
                 return;
             }
 
-            // 以最後施加的效果決定光環顏色，玩家最在意的就是「剛剛誰動了手腳」
-            EffectKind kind = horse.Effects[effectCount - 1].Kind;
-            view.SetAura(true, kind == EffectKind.Boost ? BoostAuraColor : SlowAuraColor);
+            if (horse.DriveLevel > DriveAuraThreshold)
+            {
+                // 搖得越用力光環越亮，讓大螢幕上看得出誰在拚
+                float intensity = Mathf.InverseLerp(DriveAuraThreshold, 1f, (float)horse.DriveLevel);
+                view.SetAura(true, Color.Lerp(DriveAuraLowColor, DriveAuraHighColor, intensity));
+                return;
+            }
+
+            view.SetAura(false, Color.white);
         }
+
+        /// <summary>低於這個驅動強度就不顯示光環，免得整場都亮著反而看不出差別。</summary>
+        private const float DriveAuraThreshold = 0.25f;
 
         private void UpdateCamera()
         {
@@ -280,6 +456,10 @@ namespace HorseRace.View
             // 而名次面板本來就把名字全列出來了，留著只是把畫面弄亂
             bool showNameTags = _loop.Phase != RacePhase.Photo && _loop.Phase != RacePhase.Settle;
             _hud.UpdateNameTags(_horseViews, _camera, showNameTags);
+
+            _hud.SetConnectionStatus(
+                _relay != null && _relay.IsConnected,
+                _relay == null ? "單機模式" : _relay.StatusText);
         }
 
         private void ResetHorsesToGate()

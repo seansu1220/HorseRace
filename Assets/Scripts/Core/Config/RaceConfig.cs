@@ -54,6 +54,27 @@ namespace HorseRace.Core
         /// </summary>
         public double FormSpread = 0.045;
 
+        // ---- 體力驅動（實體計步器／手機搖動）----
+
+        /// <summary>
+        /// 搖動能提供的最大速度加成。0.6 = 全力搖時比基準快六成。
+        ///
+        /// 這是「體力占多少比重」的總旋鈕，也是唯一需要現場調的數字：
+        /// 調到 0.15 搖動只是調味，賠率幾乎準確；調到 1.5 就接近純體力賽，
+        /// 賠率只剩參考價值。刻意做成單一參數，現場覺得不夠刺激直接改。
+        /// </summary>
+        public double MaxDriveBonus = 0.6;
+
+        /// <summary>每秒幾步算「全力」。超過這個步頻不會再更快，擋掉狂甩與機械輔助。</summary>
+        public double StepsPerSecondForFullDrive = 6.0;
+
+        /// <summary>
+        /// 停止搖動後驅動強度的衰減時間常數（秒）。
+        /// 同時也是容錯機制：裝置沒電或斷線時，驅動強度會自己滑回 0，
+        /// 那匹馬退回基準速度繼續跑完，不會卡在半路。
+        /// </summary>
+        public double DriveDecaySeconds = 1.0;
+
         // ---- 階段秒數 ----
 
         /// <summary>待機展示。賠率的蒙地卡羅模擬就在這段時間於背景算完。</summary>
@@ -105,6 +126,10 @@ namespace HorseRace.Core
             NoiseScale = ConfigMath.Clamp(NoiseScale, 0.0, 3.0);
             StatJitter = ConfigMath.Clamp(StatJitter, 0.0, 0.5);
             FormSpread = ConfigMath.Clamp(FormSpread, 0.0, 0.3);
+
+            MaxDriveBonus = ConfigMath.Clamp(MaxDriveBonus, 0.0, 3.0);
+            StepsPerSecondForFullDrive = ConfigMath.Clamp(StepsPerSecondForFullDrive, 0.5, 30.0);
+            DriveDecaySeconds = ConfigMath.Clamp(DriveDecaySeconds, 0.1, 10.0);
 
             IdleSeconds = ConfigMath.Clamp(IdleSeconds, 0.5, 120.0);
             BettingSeconds = ConfigMath.Clamp(BettingSeconds, 3.0, 600.0);

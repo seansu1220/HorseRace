@@ -18,6 +18,8 @@ namespace HorseRace.Core
 
         public ItemConfig Items = new ItemConfig();
 
+        public NetworkConfig Network = new NetworkConfig();
+
         /// <summary>馬房名冊。每場從這裡取出全部馬匹出賽，並對能力值做隨機微調。</summary>
         public List<HorseConfig> Roster = new List<HorseConfig>();
 
@@ -79,6 +81,13 @@ namespace HorseRace.Core
             }
 
             Items.Validate();
+
+            if (Network == null)
+            {
+                Network = new NetworkConfig();
+            }
+
+            Network.Validate();
 
             if (Roster == null)
             {

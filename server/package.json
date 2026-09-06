@@ -1,0 +1,16 @@
+{
+  "name": "horserace-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "賽馬遊戲的中繼伺服器：託管手機網頁，並在大螢幕與手機之間轉發訊息。不含任何遊戲邏輯。",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

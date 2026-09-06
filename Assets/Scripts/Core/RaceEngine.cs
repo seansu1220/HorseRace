@@ -174,6 +174,42 @@ namespace HorseRace.Core
             return true;
         }
 
+        /// <summary>
+        /// 替某匹馬累加體力步數（來自實體計步器或手機搖動）。
+        ///
+        /// 內部是一個漏水桶：每一步往桶裡加水，桶子同時以固定時間常數漏水，
+        /// 所以水位反映的是「最近的步頻」而不是累計總數。
+        /// 這樣設計有三個好處：封包不必等間隔抵達也不會抖動、
+        /// 停下來水位會自己降回去、裝置斷線那匹馬會平順退回基準速度而不是卡住。
+        /// </summary>
+        /// <returns>閘號有效且該匹馬還在跑時回傳 true。</returns>
+        public bool AddSteps(int lane, int stepCount)
+        {
+            if (lane < 0 || lane >= _horses.Length || stepCount <= 0)
+            {
+                return false;
+            }
+
+            HorseState horse = _horses[lane];
+            if (horse.Finished)
+            {
+                return false;
+            }
+
+            double perStep = 1.0 /
+                (_config.StepsPerSecondForFullDrive * _config.DriveDecaySeconds);
+
+            // 上限鎖在 1：超出全力步頻的部分直接丟掉，不讓人「存起來」之後爆發
+            horse.DriveLevel = ConfigMath.Clamp(horse.DriveLevel + stepCount * perStep, 0.0, 1.0);
+            return true;
+        }
+
+        /// <summary>目前的體力驅動強度 0~1，供大螢幕顯示力度條。</summary>
+        public double DriveLevelOf(int lane)
+        {
+            return lane < 0 || lane >= _horses.Length ? 0.0 : _horses[lane].DriveLevel;
+        }
+
         /// <summary>目前這匹馬身上有幾個生效中的效果。用於「同一匹最多疊 N 層」的驗證。</summary>
         public int ActiveEffectCount(int lane)
         {
@@ -275,6 +311,7 @@ namespace HorseRace.Core
                 }
 
                 ExpireEffects(horse, dt);
+                DecayDrive(horse, dt);
 
                 double targetSpeed = ComputeTargetSpeed(horse, dt);
                 horse.Speed += (targetSpeed - horse.Speed) * _config.SpeedSmoothing * dt;
@@ -327,7 +364,12 @@ namespace HorseRace.Core
                 itemFactor *= effects[i].Multiplier;
             }
 
-            return stats.BaseSpeed * horse.Form * staminaFactor * noiseFactor * itemFactor;
+            // 體力加成疊在模擬結果之上，並受 MaxDriveBonus 上限約束。
+            // 沒有任何裝置在餵步數時 DriveLevel 為 0，這一項自然等於 1，比賽照常進行。
+            double driveFactor = 1.0 + _config.MaxDriveBonus * horse.DriveLevel;
+
+            return stats.BaseSpeed * horse.Form * staminaFactor * noiseFactor
+                   * itemFactor * driveFactor;
         }
 
         private const double MinNoiseFactor = 0.35;
@@ -342,6 +384,21 @@ namespace HorseRace.Core
 
             double t = (progress01 - start) / (1.0 - start);
             return t * t;
+        }
+
+        /// <summary>漏水桶的漏水端：停止餵步數後，驅動強度以指數方式滑回 0。</summary>
+        private void DecayDrive(HorseState horse, double dt)
+        {
+            if (horse.DriveLevel <= 0.0)
+            {
+                return;
+            }
+
+            horse.DriveLevel -= horse.DriveLevel * dt / _config.DriveDecaySeconds;
+            if (horse.DriveLevel < 1e-6)
+            {
+                horse.DriveLevel = 0.0;
+            }
         }
 
         private static void ExpireEffects(HorseState horse, double dt)

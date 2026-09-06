@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0d1017">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>賽馬場 · 體力驅動</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header class="bar">
+    <span id="phaseLabel" class="phase">連線中…</span>
+    <span id="countdown" class="countdown"></span>
+    <span id="connection" class="dot offline" title="連線狀態"></span>
+  </header>
+
+  <!-- 選馬 -->
+  <section id="pickPanel" class="panel">
+    <h1>選一匹馬</h1>
+    <p class="hint">選好之後，你搖手機的力道會直接推動這匹馬。</p>
+    <div id="horseList" class="horse-list"></div>
+  </section>
+
+  <!-- 主畫面 -->
+  <section id="drivePanel" class="panel" hidden>
+    <div class="mine">
+      <span id="mineChip" class="chip"></span>
+      <span id="mineName" class="mine-name">—</span>
+      <button id="changeHorse" class="link-button" type="button">換一匹</button>
+    </div>
+
+    <div class="meter">
+      <div id="meterFill" class="meter-fill"></div>
+      <span id="meterText" class="meter-text">0%</span>
+    </div>
+
+    <div class="stats">
+      <div><strong id="stepCount">0</strong><span>總步數</span></div>
+      <div><strong id="stepRate">0.0</strong><span>步／秒</span></div>
+    </div>
+
+    <button id="tapPad" class="tap-pad" type="button">
+      <span class="tap-title">用力搖手機</span>
+      <span class="tap-sub">或連打這個按鈕</span>
+    </button>
+
+    <button id="motionButton" class="motion-button" type="button" hidden>
+      開啟動作感測器
+    </button>
+    <p id="motionNote" class="note"></p>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

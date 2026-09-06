@@ -32,6 +32,7 @@ namespace HorseRace.Tests
             EngineTests();
             OddsTests();
             EffectTests();
+            DriveTests();
             ConfigTests();
             GameLoopTests();
 
@@ -397,6 +398,126 @@ namespace HorseRace.Tests
                 SourcePlayerId = "test",
                 SourceNickname = "測試員"
             };
+        }
+
+        // ---------------------------------------------------------- 體力驅動
+
+        private static void DriveTests()
+        {
+            Section("體力驅動（計步器／手機搖動）");
+
+            GameConfig config = DefaultConfig();
+            HorseConfig[] lineup = RaceLineup.Create(config.Race, config.Roster, 21);
+            double fullRate = config.Race.StepsPerSecondForFullDrive;
+
+            RaceEngine engine = new RaceEngine(config.Race, lineup, 500);
+            Check("開賽時驅動強度為 0", Math.Abs(engine.DriveLevelOf(0)) < 1e-12);
+
+            engine.AddSteps(0, 3);
+            Check("累加步數會提升驅動強度", engine.DriveLevelOf(0) > 0.0);
+
+            // 以全力步頻持續餵入，強度應收斂到接近上限
+            RaceEngine atFullRate = new RaceEngine(config.Race, lineup, 500);
+            DriveFor(atFullRate, 0, 5.0, fullRate);
+            double fullLevel = atFullRate.DriveLevelOf(0);
+            Check("以全力步頻持續搖，強度收斂到接近 1（實得 " + fullLevel.ToString("F2") + "）",
+                fullLevel > 0.85);
+
+            // 半速應該落在中段，證明強度真的反映步頻而不是只有開關兩種狀態
+            RaceEngine atHalfRate = new RaceEngine(config.Race, lineup, 500);
+            DriveFor(atHalfRate, 0, 5.0, fullRate * 0.5);
+            double halfLevel = atHalfRate.DriveLevelOf(0);
+            Check("半速搖動的強度落在中段（實得 " + halfLevel.ToString("F2") + "）",
+                halfLevel > 0.3 && halfLevel < 0.75);
+
+            // 狂甩不能突破上限
+            RaceEngine spammed = new RaceEngine(config.Race, lineup, 500);
+            spammed.AddSteps(0, 100000);
+            Check("狂甩不會讓強度超過 1", spammed.DriveLevelOf(0) <= 1.0 + 1e-12);
+
+            // 停止搖動後要自己滑回去，這同時是裝置沒電／斷線的容錯行為
+            RaceEngine coasting = new RaceEngine(config.Race, lineup, 500);
+            DriveFor(coasting, 0, 3.0, fullRate);
+            AdvanceBySeconds(coasting, 6.0);
+            Check("停止搖動後強度衰減回接近 0（實得 "
+                  + coasting.DriveLevelOf(0).ToString("F3") + "）",
+                coasting.DriveLevelOf(0) < 0.02);
+
+            Check("無效閘號會被拒絕", !engine.AddSteps(99, 5));
+            Check("零或負步數會被拒絕", !engine.AddSteps(0, 0) && !engine.AddSteps(0, -3));
+
+            RaceEngine finished = new RaceEngine(config.Race, lineup, 500);
+            finished.RunToCompletion();
+            Check("已完賽的馬不再接受步數", !finished.AddSteps(0, 10));
+
+            RaceEngine source = new RaceEngine(config.Race, lineup, 501);
+            DriveFor(source, 0, 2.0, fullRate);
+            RaceEngine copy = source.Clone();
+            Check("Clone 保留驅動強度",
+                Math.Abs(copy.DriveLevelOf(0) - source.DriveLevelOf(0)) < 1e-12);
+
+            // 真正該驗的事：一直搖到底的馬，名次要明顯變好
+            double idleRank = AverageRankWithDrive(config, lineup, 0.0);
+            double drivenRank = AverageRankWithDrive(config, lineup, fullRate);
+            Check("持續搖動讓平均名次明顯變好（" + drivenRank.ToString("F2")
+                  + " < " + idleRank.ToString("F2") + "）",
+                drivenRank < idleRank - 0.4);
+
+            // 上限旋鈕轉到 0 時，搖動必須完全失效
+            GameConfig noBonus = DefaultConfig();
+            noBonus.Race.MaxDriveBonus = 0.0;
+            HorseConfig[] noBonusLineup = RaceLineup.Create(noBonus.Race, noBonus.Roster, 21);
+
+            RaceEngine withoutDrive = new RaceEngine(noBonus.Race, noBonusLineup, 909);
+            AdvanceBySeconds(withoutDrive, 6.0);
+            RaceEngine withDrive = new RaceEngine(noBonus.Race, noBonusLineup, 909);
+            DriveFor(withDrive, 0, 6.0, fullRate);
+
+            Check("MaxDriveBonus 為 0 時搖動完全不影響賽況",
+                Math.Abs(withDrive.Horses[0].Distance - withoutDrive.Horses[0].Distance) < 1e-9);
+        }
+
+        /// <summary>以指定步頻邊餵步數邊推進，模擬實際裝置持續回報的情形。</summary>
+        private static void DriveFor(RaceEngine engine, int lane, double seconds, double stepsPerSecond)
+        {
+            const double slice = 0.02;
+            int ticks = (int)Math.Round(seconds / slice);
+            double pending = 0.0;
+
+            for (int i = 0; i < ticks; i++)
+            {
+                pending += stepsPerSecond * slice;
+                int whole = (int)pending;
+                if (whole > 0)
+                {
+                    engine.AddSteps(lane, whole);
+                    pending -= whole;
+                }
+
+                engine.Advance(slice);
+            }
+        }
+
+        /// <summary>0 號馬全程以指定步頻搖動，回傳多場的平均名次。</summary>
+        private static double AverageRankWithDrive(
+            GameConfig config, HorseConfig[] lineup, double stepsPerSecond)
+        {
+            const int races = 120;
+            int rankSum = 0;
+
+            for (int i = 0; i < races; i++)
+            {
+                RaceEngine engine = new RaceEngine(config.Race, lineup, 6000 + i * 23);
+                while (!engine.IsFinished && engine.ElapsedSeconds < config.Race.MaxRaceSeconds)
+                {
+                    DriveFor(engine, 0, 0.5, stepsPerSecond);
+                }
+
+                engine.GetFinishOrder();
+                rankSum += engine.Horses[0].FinishRank;
+            }
+
+            return (double)rankSum / races;
         }
 
         // ---------------------------------------------------------------- 設定

@@ -13,6 +13,10 @@
     "StatJitter": 0.05,
     "FormSpread": 0.045,
 
+    "MaxDriveBonus": 0.6,
+    "StepsPerSecondForFullDrive": 6.0,
+    "DriveDecaySeconds": 1.0,
+
     "IdleSeconds": 6.0,
     "BettingSeconds": 30.0,
     "PhotoSeconds": 4.0,
@@ -33,6 +37,13 @@
     "Cost": 50,
     "UsesPerRace": 2,
     "MaxStacksPerHorse": 2
+  },
+
+  "Network": {
+    "RelayUrl": "ws://localhost:8080/ws?role=host",
+    "AutoConnect": true,
+    "ReconnectSeconds": 2.0,
+    "SnapshotsPerSecond": 10.0
   },
 
   "Roster": [

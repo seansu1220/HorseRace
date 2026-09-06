@@ -14,6 +14,8 @@ namespace HorseRace.View
         private const float BarWidth = 250f;
         private const float PanelWidth = 560f;
 
+        private static readonly Color DriveBarColor = new Color(1f, 0.42f, 0.18f);
+
         /// <summary>名單面板一列的所有元件。</summary>
         private sealed class HorseRow
         {
@@ -23,6 +25,7 @@ namespace HorseRace.View
             public Text Name;
             public Text Value;
             public RectTransform BarFill;
+            public RectTransform DriveFill;
         }
 
         private Canvas _canvas;
@@ -41,6 +44,7 @@ namespace HorseRace.View
 
         private RectTransform _nameTagLayer;
         private Text[] _nameTags;
+        private Text _connectionLabel;
 
         private HorseConfig[] _lineup;
 
@@ -81,6 +85,7 @@ namespace HorseRace.View
                 _rows[lane].Position.text = (lane + 1).ToString();
                 _rows[lane].Value.text = "—";
                 UiFactory.SetProgress(_rows[lane].BarFill, 0f, BarWidth);
+                UiFactory.SetProgress(_rows[lane].DriveFill, 0f, BarWidth);
 
                 _nameTags[lane].text = lineup[lane].Name;
                 _nameTags[lane].color = coat;
@@ -122,6 +127,7 @@ namespace HorseRace.View
                     : odds[lane].ToString("F2") + " 倍";
                 _rows[lane].Value.color = odds == null ? UiFactory.MutedTextColor : UiFactory.AccentColor;
                 UiFactory.SetProgress(_rows[lane].BarFill, 0f, BarWidth);
+                UiFactory.SetProgress(_rows[lane].DriveFill, 0f, BarWidth);
             }
         }
 
@@ -147,7 +153,17 @@ namespace HorseRace.View
                     : Mathf.RoundToInt((float)horse.Progress01 * 100f) + "%";
                 _rows[lane].Value.color = UiFactory.TextColor;
                 UiFactory.SetProgress(_rows[lane].BarFill, (float)horse.Progress01, BarWidth);
+                UiFactory.SetProgress(_rows[lane].DriveFill, (float)horse.DriveLevel, BarWidth);
             }
+        }
+
+        /// <summary>顯示與中繼伺服器的連線狀態。現場出問題時第一個要看的東西。</summary>
+        public void SetConnectionStatus(bool connected, string detail)
+        {
+            _connectionLabel.text = connected ? "已連線" : detail;
+            _connectionLabel.color = connected
+                ? new Color(0.42f, 0.85f, 0.52f)
+                : new Color(1f, 0.45f, 0.40f);
         }
 
         /// <summary>揭曉名次。</summary>
@@ -293,6 +309,12 @@ namespace HorseRace.View
                 new Vector2(124f, -18f), new Vector2(BarWidth, 8f),
                 UiFactory.AccentColor);
 
+            // 體力條放在賽程條正下方，讓觀眾一眼看出誰在拚、誰在混
+            row.DriveFill = UiFactory.ProgressBar(row.Root, "DriveBar",
+                new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
+                new Vector2(124f, -31f), new Vector2(BarWidth, 5f),
+                DriveBarColor);
+
             return row;
         }
 
@@ -347,6 +369,11 @@ namespace HorseRace.View
                 TextAnchor.UpperCenter, UiFactory.MutedTextColor);
             UiFactory.Place((RectTransform)note.transform, new Vector2(0.5f, 1f),
                 new Vector2(0.5f, 1f), new Vector2(0f, -334f), new Vector2(320f, 40f));
+
+            _connectionLabel = UiFactory.Label(panel, "Connection", "尚未連線", 22,
+                TextAnchor.UpperCenter, UiFactory.MutedTextColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)_connectionLabel.transform, new Vector2(0.5f, 1f),
+                new Vector2(0.5f, 1f), new Vector2(0f, -364f), new Vector2(320f, 34f));
         }
 
         private void BuildHint()
