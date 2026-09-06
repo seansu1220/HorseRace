@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    直接把 Assets/Scripts/Core 的原始碼編進來，不做任何複製。
+    Core 掛了 noEngineReferences，本來就是純 C#，所以不用 Unity 也能編譯與執行。
+    TargetFramework 之所以停在 netcoreapp2.1，是因為開發機目前只有 .NET SDK 2.1。
+    之後安裝新版 SDK 可直接改成 net8.0，程式碼不需要改。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>CoreTests</AssemblyName>
+    <RootNamespace>HorseRace.Tests</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="..\..\Assets\Scripts\Core\**\*.cs" />
+  </ItemGroup>
+
+</Project>

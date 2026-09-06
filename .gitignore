@@ -29,3 +29,8 @@ crashlytics-build.properties
 __pycache__/
 *.pyc
 node_modules/
+tools/**/bin/
+tools/**/obj/
+
+# 測試專案的 csproj 是手寫的，必須進版控（上面的 *.csproj 只針對 Unity 自動產生的）
+!tools/**/*.csproj

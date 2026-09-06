@@ -1,0 +1,68 @@
+{
+  "Race": {
+    "TrackLengthMeters": 450.0,
+    "MaxRaceSeconds": 120.0,
+
+    "FixedStepSeconds": 0.02,
+    "MaxCatchUpSeconds": 0.25,
+    "SpeedSmoothing": 2.5,
+    "FatigueStart": 0.55,
+    "MaxFatiguePenalty": 0.22,
+    "NoiseReversion": 1.5,
+    "NoiseScale": 0.55,
+    "StatJitter": 0.05,
+    "FormSpread": 0.045,
+
+    "IdleSeconds": 6.0,
+    "BettingSeconds": 30.0,
+    "PhotoSeconds": 4.0,
+    "SettleSeconds": 8.0,
+
+    "StartingChips": 1000,
+    "TakeRate": 0.15,
+    "OddsSimulationRuns": 1500,
+    "MinOdds": 1.05,
+    "MaxOdds": 20.0
+  },
+
+  "Items": {
+    "BoostMultiplier": 1.35,
+    "SlowMultiplier": 0.60,
+    "DurationSeconds": 2.0,
+    "CooldownSeconds": 8.0,
+    "Cost": 50,
+    "UsesPerRace": 2,
+    "MaxStacksPerHorse": 2
+  },
+
+  "Roster": [
+    {
+      "Name": "赤焰",
+      "ColorHex": "#E74C3C",
+      "BaseSpeed": 17.4,
+      "Stamina": 0.45,
+      "Volatility": 0.70
+    },
+    {
+      "Name": "蒼影",
+      "ColorHex": "#3498DB",
+      "BaseSpeed": 17.0,
+      "Stamina": 0.80,
+      "Volatility": 0.35
+    },
+    {
+      "Name": "金鬃",
+      "ColorHex": "#F1C40F",
+      "BaseSpeed": 17.2,
+      "Stamina": 0.60,
+      "Volatility": 0.50
+    },
+    {
+      "Name": "墨風",
+      "ColorHex": "#2ECC71",
+      "BaseSpeed": 16.8,
+      "Stamina": 0.55,
+      "Volatility": 0.90
+    }
+  ]
+}

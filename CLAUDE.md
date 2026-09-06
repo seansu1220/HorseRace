@@ -126,7 +126,8 @@ UI 層只負責顯示與事件捕捉，不寫商業邏輯。核心邏輯模組�
 
 **本專案的具體落實**：`Assets/Scripts/Core/` 底下**禁止 `using UnityEngine`**。
 賽事模擬、賠率、下注結算之後可能要搬到伺服器端做權威判定，必須是純 C#。
-- 隨機數用 `System.Random`，不用 `UnityEngine.Random`
+- 隨機數用 `Core/DeterministicRandom`（SplitMix64），不用 `UnityEngine.Random`，
+  也不用 `System.Random`——後者無法複製內部狀態，`RaceEngine.Clone()` 會失去可重現性
 - 不使用 `Debug.Log`，需要輸出改用回傳值或事件
 - 不使用 `MonoBehaviour`、`Coroutine`、`Vector3`、`Time.deltaTime` 等 Unity 型別
 - 時間一律由外部以 `Tick(double deltaSeconds)` 注入，Core 自己不讀時鐘
@@ -243,14 +244,22 @@ Settle  派彩結算（預設 8 秒）
 
 ## 目前進度
 
+**M0 專案骨架**
 - [x] Unity 2022.3.22f1 專案骨架
-- [x] CLAUDE.md 與架構文件
-- [ ] Core：`RaceConfig` / `HorseConfig` / `RaceEngine` / `OddsCalculator` / `BettingBook` / `GameLoop`
-- [ ] tools/CoreTests 單元測試
-- [ ] View：賽道與馬匹程式生成、攝影機跟拍、大螢幕 UI
-- [ ] server：Node.js 中繼站 + 部署
-- [ ] web：手機下注頁
-- [ ] Net：Unity WebSocket 客戶端與重連
-- [ ] QRCode 顯示
-- [ ] 道具系統
-- [ ] 音效與正式素材替換
+- [x] CLAUDE.md 與 `docs/ARCHITECTURE.md`
+
+**M1 賽事引擎**
+- [x] Core：`DeterministicRandom` / `RaceConfig` / `HorseConfig` / `ItemConfig` / `GameConfig`
+- [x] Core：`RaceEngine` / `OddsCalculator` / `RaceLineup` / `GameLoop`
+- [x] `tools/CoreTests` 單元測試（67 項全綠）
+
+**M2 大螢幕視覺**
+- [x] View：賽道、馬匹、攝影機運鏡、大螢幕 UI，全部程式生成
+- [x] `StreamingAssets/config/race.json` 現場可調參數
+- [x] 建置前自動補齊 Always Included Shaders
+
+**尚未開始**
+- [ ] M3 server：Node.js 中繼站 + 部署；web：手機下注頁；Net：WebSocket 客戶端與重連；QRCode
+- [ ] M4 下注與賠率結算（`BettingBook` / `RoomState`）
+- [ ] M5 道具系統接上手機端（引擎側的 `ApplyEffect` 已完成）
+- [ ] M6 音效、播報、正式素材替換、30 連線壓測
