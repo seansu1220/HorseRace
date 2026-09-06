@@ -36,17 +36,43 @@ namespace HorseRace.View
             _targetLookAt = new Vector3(TrackLayout.StartX + 2f, 1.5f, 0f);
         }
 
-        /// <summary>賽中側面跟拍。</summary>
-        public void FollowPack(float leaderProgress01, float packProgress01)
+        /// <summary>
+        /// 賽中側面跟拍。鏡頭對準領先者與最後一名的中點，並依馬群拉開的幅度自動拉遠。
+        ///
+        /// 會需要動態拉遠是因為體力驅動：有人猛搖時那匹馬會大幅甩開其他馬，
+        /// 固定鏡位下後段班會整個被擠出畫面，看起來就不像在比賽了。
+        /// </summary>
+        public void FollowPack(float leaderProgress01, float trailerProgress01)
         {
-            // 偏向領先者但不完全跟著他，否則被拉開的最後一匹會整個出鏡
-            float focus = Mathf.Lerp(packProgress01, leaderProgress01, 0.55f);
-            float focusX = TrackLayout.ProgressToX(focus);
+            float leaderX = TrackLayout.ProgressToX(leaderProgress01);
+            float trailerX = TrackLayout.ProgressToX(trailerProgress01);
 
-            // 前瞻量刻意壓小：往前帶太多會把馬群推到畫面左下角，重點反而變成空賽道
-            _targetPosition = new Vector3(focusX - 3f, 7f, -(_laneSpan * 0.5f + TrackLayout.RailOffset + 18f));
-            _targetLookAt = new Vector3(focusX + 2f, 1.6f, 0f);
+            float midX = (leaderX + trailerX) * 0.5f;
+            float spread = Mathf.Max(0f, leaderX - trailerX);
+
+            // 視野寬度與鏡頭距離成正比，所以要納入的間距越大、就要退得越遠
+            float distance = Mathf.Clamp(
+                BaseFollowDistance + spread * SpreadZoomFactor,
+                BaseFollowDistance, MaxFollowDistance);
+
+            // 退遠時同步升高，維持俯角，不然遠處會被欄杆與看台擋住
+            float height = Mathf.Lerp(BaseFollowHeight, MaxFollowHeight,
+                Mathf.InverseLerp(BaseFollowDistance, MaxFollowDistance, distance));
+
+            _targetPosition = new Vector3(
+                midX, height, -(_laneSpan * 0.5f + TrackLayout.RailOffset + distance));
+            _targetLookAt = new Vector3(midX, 1.6f, 0f);
         }
+
+        private const float BaseFollowDistance = 18f;
+        private const float MaxFollowDistance = 46f;
+        private const float BaseFollowHeight = 7f;
+
+        // 退遠時只微幅升高。升太多會把俯角拉大，下半個畫面就整片變成空草地
+        private const float MaxFollowHeight = 9.5f;
+
+        /// <summary>每單位間距要多退多遠。水平視野約為距離的 1.36 倍，抓 0.85 留有餘裕。</summary>
+        private const float SpreadZoomFactor = 0.85f;
 
         /// <summary>衝線特寫。從終點前方斜看回來。</summary>
         public void FramePhotoFinish()

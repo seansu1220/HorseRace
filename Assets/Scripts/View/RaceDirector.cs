@@ -37,6 +37,7 @@ namespace HorseRace.View
 
         private Task<double[]> _oddsTask;
         private int _oddsRaceNumber;
+        private float _oddsStartedAt;
 
         private RelayClient _relay;
         private DriveMessage _driveMessage;
@@ -130,10 +131,35 @@ namespace HorseRace.View
 
                 case RacePhase.Photo:
                     _hud.ShowResult(_loop.Race, _loop.FinishOrder);
+                    LogFinishOrder();
                     break;
             }
 
             BroadcastPhase();
+        }
+
+        /// <summary>把賽果寫進 log。賽後有人質疑名次時，這是唯一的客觀紀錄。</summary>
+        private void LogFinishOrder()
+        {
+            int[] order = _loop.FinishOrder;
+            if (order == null)
+            {
+                return;
+            }
+
+            System.Text.StringBuilder line = new System.Text.StringBuilder();
+            line.Append("[RaceDirector] 第 ").Append(_loop.RaceNumber).Append(" 場結果：");
+
+            for (int position = 0; position < order.Length; position++)
+            {
+                int lane = order[position];
+                line.Append(position + 1).Append('.')
+                    .Append(_loop.Lineup[lane].Name)
+                    .Append("(閘").Append(lane).Append(") ")
+                    .Append(_loop.Race.Horses[lane].FinishTime.ToString("F2")).Append("秒  ");
+            }
+
+            Debug.Log(line.ToString());
         }
 
         // ---- 中繼伺服器 ----
@@ -307,6 +333,13 @@ namespace HorseRace.View
             else if (!_oddsTask.IsCanceled)
             {
                 _loop.SetOdds(_oddsRaceNumber, _oddsTask.Result);
+
+                // 記下耗時：這個數字若接近或超過 IdleSeconds，
+                // 下注階段一開始會有短暫的「計算中」，該調長待機時間或調低模擬次數
+                float elapsedMs = (Time.realtimeSinceStartup - _oddsStartedAt) * 1000f;
+                Debug.Log("[RaceDirector] 第 " + _oddsRaceNumber + " 場賠率計算完成，耗時 "
+                          + Mathf.RoundToInt(elapsedMs) + " ms（模擬 "
+                          + _config.Race.OddsSimulationRuns + " 場）。");
             }
 
             _oddsTask = null;
@@ -326,6 +359,7 @@ namespace HorseRace.View
             int seed = _loop.RaceSeed;
 
             _oddsRaceNumber = _loop.RaceNumber;
+            _oddsStartedAt = Time.realtimeSinceStartup;
             _oddsTask = Task.Run(() => OddsCalculator.Compute(configSnapshot, lineup, seed));
         }
 
@@ -415,21 +449,26 @@ namespace HorseRace.View
                     break;
 
                 case RacePhase.Racing:
+                    // 鏡頭需要的是頭尾兩端，不是平均值——它要框住的是整個馬群
                     float leader = 0f;
-                    float total = 0f;
+                    float trailer = 1f;
                     RaceEngine race = _loop.Race;
 
                     for (int lane = 0; lane < race.HorseCount; lane++)
                     {
                         float progress = (float)race.Horses[lane].Progress01;
-                        total += progress;
                         if (progress > leader)
                         {
                             leader = progress;
                         }
+
+                        if (progress < trailer)
+                        {
+                            trailer = progress;
+                        }
                     }
 
-                    _cameraRig.FollowPack(leader, total / race.HorseCount);
+                    _cameraRig.FollowPack(leader, trailer);
                     break;
 
                 default:
