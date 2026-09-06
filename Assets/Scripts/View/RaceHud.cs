@@ -50,12 +50,15 @@ namespace HorseRace.View
             _canvas.transform.SetParent(transform, false);
             _canvasRect = (RectTransform)_canvas.transform;
 
+            // 建立順序就是繪製順序：uGUI 中後建立的兄弟節點蓋在先建立的上面。
+            // 名牌是貼在 3D 馬匹頭上的世界座標標籤，必須是最底層，
+            // 否則會蓋住名次揭曉面板與左側名單，把字擋掉。
+            BuildNameTags(laneCount);
             BuildTopBar();
             BuildHorseList(laneCount);
-            BuildResultPanel(laneCount);
             BuildJoinPlaceholder();
             BuildHint();
-            BuildNameTags(laneCount);
+            BuildResultPanel(laneCount);
         }
 
         /// <summary>換場時更新名單。顏色與名字只有這時候會變。</summary>

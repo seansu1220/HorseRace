@@ -276,7 +276,10 @@ namespace HorseRace.View
                 _hud.ShowLiveRanks(_loop.Race, _liveRanks);
             }
 
-            _hud.UpdateNameTags(_horseViews, _camera, true);
+            // 衝線與結算階段關掉名牌：四匹馬擠在終點，名牌會互相重疊，
+            // 而名次面板本來就把名字全列出來了，留著只是把畫面弄亂
+            bool showNameTags = _loop.Phase != RacePhase.Photo && _loop.Phase != RacePhase.Settle;
+            _hud.UpdateNameTags(_horseViews, _camera, showNameTags);
         }
 
         private void ResetHorsesToGate()
