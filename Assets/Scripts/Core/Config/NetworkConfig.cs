@@ -15,6 +15,15 @@ namespace HorseRace.Core
         /// <summary>是否在啟動時自動連線。關掉就是純單機模式，方便只測賽事本身。</summary>
         public bool AutoConnect = true;
 
+        /// <summary>
+        /// 手機掃 QRCode 之後要開的網址。
+        ///
+        /// 留空則自動從 <see cref="RelayUrl"/> 推導（ws → http、wss → https），
+        /// 且若位址是 localhost 會自動換成本機的區網 IP——不然手機掃了會連到自己身上。
+        /// 用 cloudflared 或部署到雲端時，把公開網址填在這裡。
+        /// </summary>
+        public string JoinUrl = "";
+
         /// <summary>斷線後的重連間隔（秒）。</summary>
         public double ReconnectSeconds = 2.0;
 

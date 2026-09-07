@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using HorseRace.Core;
 using UnityEngine;
 using UnityEngine.UI;
@@ -46,6 +47,15 @@ namespace HorseRace.View
         private Text[] _nameTags;
         private Text _connectionLabel;
 
+        private RawImage _qrImage;
+        private Text _joinUrlLabel;
+        private Text _playerCountLabel;
+        private Text[] _leaderRows;
+        private Text _leaderEmptyLabel;
+
+        /// <summary>排行榜顯示幾名。太多會佔掉賽道畫面，五名剛好。</summary>
+        private const int LeaderRowCount = 5;
+
         private HorseConfig[] _lineup;
 
         public void Build(int laneCount)
@@ -60,7 +70,8 @@ namespace HorseRace.View
             BuildNameTags(laneCount);
             BuildTopBar();
             BuildHorseList(laneCount);
-            BuildJoinPlaceholder();
+            BuildLeaderboard(laneCount);
+            BuildJoinPanel();
             BuildHint();
             BuildResultPanel(laneCount);
         }
@@ -344,36 +355,116 @@ namespace HorseRace.View
             _resultPanel.gameObject.SetActive(false);
         }
 
-        private void BuildJoinPlaceholder()
+        private void BuildJoinPanel()
         {
-            // M3 會把這塊換成真正的房號與 QRCode
             RectTransform panel = UiFactory.Panel(_canvas.transform, "JoinPanel", UiFactory.PanelColor);
             UiFactory.Place(panel, new Vector2(1f, 1f), new Vector2(1f, 1f),
-                new Vector2(-36f, -36f), new Vector2(360f, 400f));
+                new Vector2(-36f, -36f), new Vector2(360f, 452f));
 
-            Text title = UiFactory.Label(panel, "Title", "手機下注", 32,
-                TextAnchor.UpperCenter, UiFactory.MutedTextColor, FontStyle.Bold);
+            Text title = UiFactory.Label(panel, "Title", "掃碼下注", 32,
+                TextAnchor.UpperCenter, UiFactory.TextColor, FontStyle.Bold);
             UiFactory.Place((RectTransform)title.transform, new Vector2(0.5f, 1f),
                 new Vector2(0.5f, 1f), new Vector2(0f, -22f), new Vector2(320f, 44f));
 
-            RectTransform placeholder = UiFactory.Panel(
-                panel, "QrPlaceholder", new Color(1f, 1f, 1f, 0.08f));
-            UiFactory.Place(placeholder, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                new Vector2(0f, -78f), new Vector2(240f, 240f));
+            // QRCode 底下墊白色：深色背景上的 QRCode 需要淺色靜區才掃得到
+            RectTransform frame = UiFactory.Panel(panel, "QrFrame", Color.white);
+            UiFactory.Place(frame, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(0f, -74f), new Vector2(248f, 248f));
 
-            Text hint = UiFactory.Label(placeholder, "Hint", "QRCode\n（M3 實作）", 26,
-                TextAnchor.MiddleCenter, UiFactory.MutedTextColor);
-            UiFactory.Stretch((RectTransform)hint.transform, 8f, 8f, 8f, 8f);
+            RectTransform image = UiFactory.Node(frame, "QrImage");
+            UiFactory.Stretch(image, 8f, 8f, 8f, 8f);
+            _qrImage = image.gameObject.AddComponent<RawImage>();
+            _qrImage.raycastTarget = false;
+            _qrImage.enabled = false;
 
-            Text note = UiFactory.Label(panel, "Note", "掃碼即可加入下注", 24,
-                TextAnchor.UpperCenter, UiFactory.MutedTextColor);
-            UiFactory.Place((RectTransform)note.transform, new Vector2(0.5f, 1f),
-                new Vector2(0.5f, 1f), new Vector2(0f, -334f), new Vector2(320f, 40f));
+            _joinUrlLabel = UiFactory.Label(panel, "JoinUrl", "", 22,
+                TextAnchor.UpperCenter, UiFactory.TextColor);
+            UiFactory.Place((RectTransform)_joinUrlLabel.transform, new Vector2(0.5f, 1f),
+                new Vector2(0.5f, 1f), new Vector2(0f, -330f), new Vector2(330f, 34f));
+
+            _playerCountLabel = UiFactory.Label(panel, "PlayerCount", "0 人已加入", 26,
+                TextAnchor.UpperCenter, UiFactory.AccentColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)_playerCountLabel.transform, new Vector2(0.5f, 1f),
+                new Vector2(0.5f, 1f), new Vector2(0f, -368f), new Vector2(320f, 36f));
 
             _connectionLabel = UiFactory.Label(panel, "Connection", "尚未連線", 22,
                 TextAnchor.UpperCenter, UiFactory.MutedTextColor, FontStyle.Bold);
             UiFactory.Place((RectTransform)_connectionLabel.transform, new Vector2(0.5f, 1f),
-                new Vector2(0.5f, 1f), new Vector2(0f, -364f), new Vector2(320f, 34f));
+                new Vector2(0.5f, 1f), new Vector2(0f, -406f), new Vector2(320f, 34f));
+        }
+
+        private void BuildLeaderboard(int laneCount)
+        {
+            float top = 96f + laneCount * RowHeight + 60f;
+
+            RectTransform panel = UiFactory.Panel(
+                _canvas.transform, "Leaderboard", UiFactory.PanelColor);
+            UiFactory.Place(panel, new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(36f, -top), new Vector2(PanelWidth, 96f + LeaderRowCount * 46f));
+
+            Text title = UiFactory.Label(panel, "Title", "籌碼排行", 30,
+                TextAnchor.UpperLeft, UiFactory.MutedTextColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)title.transform, new Vector2(0f, 1f),
+                new Vector2(0f, 1f), new Vector2(28f, -22f), new Vector2(400f, 40f));
+
+            _leaderRows = new Text[LeaderRowCount];
+            for (int i = 0; i < LeaderRowCount; i++)
+            {
+                _leaderRows[i] = UiFactory.Label(panel, "Leader_" + i, "", 28,
+                    TextAnchor.MiddleLeft, UiFactory.TextColor);
+                UiFactory.Place((RectTransform)_leaderRows[i].transform, new Vector2(0f, 1f),
+                    new Vector2(0f, 1f), new Vector2(28f, -(76f + i * 46f)),
+                    new Vector2(PanelWidth - 56f, 40f));
+                _leaderRows[i].gameObject.SetActive(false);
+            }
+
+            _leaderEmptyLabel = UiFactory.Label(panel, "Empty", "還沒有人加入", 26,
+                TextAnchor.MiddleLeft, UiFactory.MutedTextColor);
+            UiFactory.Place((RectTransform)_leaderEmptyLabel.transform, new Vector2(0f, 1f),
+                new Vector2(0f, 1f), new Vector2(28f, -76f), new Vector2(400f, 40f));
+        }
+
+        /// <summary>設定掃碼入場的資訊。傳入 null 的貼圖代表產生失敗，此時只顯示網址文字。</summary>
+        public void SetJoinInfo(Texture2D qrCode, string joinUrl)
+        {
+            if (qrCode != null)
+            {
+                _qrImage.texture = qrCode;
+                _qrImage.enabled = true;
+            }
+
+            _joinUrlLabel.text = string.IsNullOrEmpty(joinUrl) ? "（無法取得網址）" : joinUrl;
+        }
+
+        public void SetPlayerCount(int count)
+        {
+            _playerCountLabel.text = count + " 人已加入";
+        }
+
+        /// <summary>更新籌碼排行。</summary>
+        public void ShowLeaderboard(IReadOnlyList<PlayerAccount> ranked)
+        {
+            bool empty = ranked == null || ranked.Count == 0;
+            _leaderEmptyLabel.gameObject.SetActive(empty);
+
+            for (int i = 0; i < _leaderRows.Length; i++)
+            {
+                bool active = !empty && i < ranked.Count;
+                _leaderRows[i].gameObject.SetActive(active);
+                if (!active)
+                {
+                    continue;
+                }
+
+                PlayerAccount account = ranked[i];
+                string delta = account.LastDelta == 0
+                    ? ""
+                    : (account.LastDelta > 0 ? "  +" + account.LastDelta : "  " + account.LastDelta);
+
+                _leaderRows[i].text = (i + 1) + ".  " + account.Nickname + "    "
+                                      + account.Balance + delta;
+                _leaderRows[i].color = i == 0 ? UiFactory.AccentColor : UiFactory.TextColor;
+            }
         }
 
         private void BuildHint()

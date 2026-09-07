@@ -43,6 +43,7 @@ namespace HorseRace.Core
 
             _config = config;
             _seedSource = new DeterministicRandom(seed);
+            Book = new BettingBook(config.Race);
             RaceNumber = 1;
 
             PrepareLineup();
@@ -75,6 +76,26 @@ namespace HorseRace.Core
 
         /// <summary>本場的最終名次（閘號陣列，索引 0 是冠軍）。未跑完為 null。</summary>
         public int[] FinishOrder { get; private set; }
+
+        /// <summary>籌碼與注單的帳本。</summary>
+        public BettingBook Book { get; private set; }
+
+        /// <summary>上一場的派彩結果。尚未結算過為 null。</summary>
+        public SettlementResult LastSettlement { get; private set; }
+
+        /// <summary>
+        /// 代為下注。階段檢查放在這裡而不是帳本裡，
+        /// 因為「什麼時候可以下注」是流程規則，不是帳務規則。
+        /// </summary>
+        public BetRejection TryPlaceBet(string playerId, int lane, int amount)
+        {
+            if (Phase != RacePhase.Betting)
+            {
+                return BetRejection.NotBettingPhase;
+            }
+
+            return Book.TryPlaceBet(playerId, lane, amount, Lineup.Length);
+        }
 
         /// <summary>賠率還沒算好。外部看到 true 就該去啟動背景計算。</summary>
         public bool NeedsOdds
@@ -180,6 +201,17 @@ namespace HorseRace.Core
         {
             Phase = phase;
             _phaseRemaining = DurationOf(phase);
+
+            if (phase == RacePhase.Betting)
+            {
+                // 清掉上一場的注單並補發同情籌碼，必須在開放下注之前完成
+                Book.BeginRace();
+            }
+            else if (phase == RacePhase.Settle)
+            {
+                LastSettlement = Book.Settle(
+                    FinishOrder != null && FinishOrder.Length > 0 ? FinishOrder[0] : -1, Odds);
+            }
 
             Action<RacePhase> handler = PhaseEntered;
             if (handler != null)

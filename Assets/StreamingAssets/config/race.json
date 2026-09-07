@@ -23,6 +23,8 @@
     "SettleSeconds": 8.0,
 
     "StartingChips": 1000,
+    "MinimumBet": 50,
+    "CharityChips": 200,
     "TakeRate": 0.15,
     "OddsSimulationRuns": 1500,
     "MinOdds": 1.05,
@@ -42,6 +44,7 @@
   "Network": {
     "RelayUrl": "ws://localhost:8080/ws?role=host",
     "AutoConnect": true,
+    "JoinUrl": "",
     "ReconnectSeconds": 2.0,
     "SnapshotsPerSecond": 10.0
   },

@@ -94,6 +94,17 @@ namespace HorseRace.Core
         /// <summary>玩家進場的初始籌碼。</summary>
         public int StartingChips = 1000;
 
+        /// <summary>單筆最低下注額。</summary>
+        public int MinimumBet = 50;
+
+        /// <summary>
+        /// 同情籌碼：每場開賽前，籌碼低於這個數字的玩家會被補到這個數字。
+        ///
+        /// 三十人的聚會裡若有人第三場就輸光、之後只能乾坐著，場子就冷掉一角。
+        /// 設 0 可關閉這個機制。
+        /// </summary>
+        public int CharityChips = 200;
+
         /// <summary>抽水率。賠率整體的平衡閥門，調高則玩家長期期望值下降。</summary>
         public double TakeRate = 0.15;
 
@@ -137,6 +148,8 @@ namespace HorseRace.Core
             SettleSeconds = ConfigMath.Clamp(SettleSeconds, 0.5, 120.0);
 
             StartingChips = ConfigMath.Clamp(StartingChips, 1, 1000000);
+            MinimumBet = ConfigMath.Clamp(MinimumBet, 1, StartingChips);
+            CharityChips = ConfigMath.Clamp(CharityChips, 0, StartingChips);
             TakeRate = ConfigMath.Clamp(TakeRate, 0.0, 0.5);
             OddsSimulationRuns = ConfigMath.Clamp(OddsSimulationRuns, 50, 50000);
             MinOdds = ConfigMath.Clamp(MinOdds, 1.0, 100.0);

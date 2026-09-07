@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using HorseRace.Core;
 using HorseRace.Core.Protocol;
@@ -98,6 +99,9 @@ namespace HorseRace.View
 
             // GameLoop 在建構時就已經進入 Idle，那一刻還沒有訂閱者，所以補呼叫一次
             OnPhaseEntered(_loop.Phase);
+
+            // 介面是剛剛才重建的，掃碼資訊要跟著重新掛上去
+            PublishJoinInfo(_config.Network);
         }
 
         /// <summary>重新開始。順便重讀設定檔，現場調完參數按 R 就生效，不必重開程式。</summary>
@@ -132,6 +136,11 @@ namespace HorseRace.View
                 case RacePhase.Photo:
                     _hud.ShowResult(_loop.Race, _loop.FinishOrder);
                     LogFinishOrder();
+                    break;
+
+                case RacePhase.Settle:
+                    // GameLoop 已在進入本階段時完成派彩，這裡只負責把結果送出去
+                    BroadcastSettlement();
                     break;
             }
 
@@ -177,6 +186,28 @@ namespace HorseRace.View
             _relay.Start(network.RelayUrl, network.ReconnectSeconds);
             Debug.Log("[RaceDirector] 連往中繼伺服器：" + network.RelayUrl);
         }
+
+        /// <summary>算出手機要開的網址並產生 QRCode 顯示在大螢幕上。</summary>
+        private void PublishJoinInfo(NetworkConfig network)
+        {
+            string joinUrl = string.IsNullOrEmpty(network.JoinUrl)
+                ? LocalAddress.DeriveJoinUrl(network.RelayUrl)
+                : network.JoinUrl;
+
+            if (string.IsNullOrEmpty(joinUrl))
+            {
+                Debug.LogWarning("[RaceDirector] 無法推導手機入場網址，"
+                                 + "請在設定檔的 Network.JoinUrl 直接填入。");
+                _hud.SetJoinInfo(null, null);
+                return;
+            }
+
+            Debug.Log("[RaceDirector] 手機入場網址：" + joinUrl);
+            _hud.SetJoinInfo(QrCodeBuilder.Create(joinUrl, QrCodeSize), joinUrl);
+        }
+
+        /// <summary>QRCode 的像素尺寸。用點取樣放大顯示，所以不需要做到面板那麼大。</summary>
+        private const int QrCodeSize = 256;
 
         /// <summary>
         /// 在主執行緒消化背景收到的訊息。
@@ -227,11 +258,121 @@ namespace HorseRace.View
                     break;
 
                 case MessageType.Join:
-                    // 目前只需要讓手機拿到目前階段與名單，之後 M4 會在這裡建立玩家錢包
-                    BroadcastPhase();
+                    PlayerAccount joined = _loop.Book.Join(message.pid, message.nick);
+                    if (joined != null)
+                    {
+                        BroadcastPhase();
+                        SendWallet(joined, null);
+                    }
+
+                    break;
+
+                case MessageType.Bet:
+                    HandleBet(message);
                     break;
             }
         }
+
+        private void HandleBet(InboundMessage message)
+        {
+            PlayerAccount account = _loop.Book.Find(message.pid);
+            if (account == null)
+            {
+                // 沒見過的玩家（例如伺服器重啟後手機才重連）先補建帳戶，別讓他卡住
+                account = _loop.Book.Join(message.pid, message.nick);
+                if (account == null)
+                {
+                    return;
+                }
+            }
+
+            BetRejection rejection = _loop.TryPlaceBet(message.pid, message.lane, message.amount);
+            SendWallet(account, rejection == BetRejection.None ? null : DescribeRejection(rejection));
+        }
+
+        /// <summary>把拒絕原因轉成給人看的文字。Core 只回傳 enum，措辭是呈現層的事。</summary>
+        private static string DescribeRejection(BetRejection rejection)
+        {
+            switch (rejection)
+            {
+                case BetRejection.NotBettingPhase:
+                    return "現在不是下注時間";
+                case BetRejection.InvalidLane:
+                    return "沒有這匹馬";
+                case BetRejection.BelowMinimum:
+                    return "低於最低下注額";
+                case BetRejection.InsufficientChips:
+                    return "籌碼不足";
+                case BetRejection.UnknownPlayer:
+                    return "找不到你的帳戶，請重新整理";
+                default:
+                    return "下注失敗";
+            }
+        }
+
+        /// <summary>把個人錢包送回該名玩家。帶 to 欄位，中繼站會定向轉發。</summary>
+        private void SendWallet(PlayerAccount account, string rejectReason)
+        {
+            if (_relay == null || !_relay.IsConnected || account == null)
+            {
+                return;
+            }
+
+            BetInfo[] bets = new BetInfo[account.Bets.Count];
+            for (int i = 0; i < bets.Length; i++)
+            {
+                bets[i] = new BetInfo
+                {
+                    lane = account.Bets[i].Lane,
+                    amount = account.Bets[i].Amount
+                };
+            }
+
+            WalletMessage message = new WalletMessage
+            {
+                to = account.PlayerId,
+                nick = account.Nickname,
+                balance = account.Balance,
+                bets = bets,
+                payout = account.LastPayout,
+                delta = account.LastDelta,
+                reject = rejectReason ?? string.Empty
+            };
+
+            _relay.Send(JsonUtility.ToJson(message));
+        }
+
+        /// <summary>結算後把每個人的錢包各自送回去，並廣播賽果與排行榜。</summary>
+        private void BroadcastSettlement()
+        {
+            if (_relay == null || !_relay.IsConnected)
+            {
+                return;
+            }
+
+            IReadOnlyList<PlayerAccount> players = _loop.Book.Players;
+            for (int i = 0; i < players.Count; i++)
+            {
+                SendWallet(players[i], null);
+            }
+
+            List<PlayerAccount> ranked = _loop.Book.TopPlayers(LeaderboardSize);
+            LeaderEntry[] top = new LeaderEntry[ranked.Count];
+            for (int i = 0; i < ranked.Count; i++)
+            {
+                top[i] = new LeaderEntry { name = ranked[i].Nickname, balance = ranked[i].Balance };
+            }
+
+            ResultMessage result = new ResultMessage
+            {
+                order = _loop.FinishOrder,
+                top = top
+            };
+
+            _relay.Send(JsonUtility.ToJson(result));
+        }
+
+        private const int LeaderboardSize = 5;
 
         private void BroadcastPhase()
         {
@@ -499,6 +640,9 @@ namespace HorseRace.View
             _hud.SetConnectionStatus(
                 _relay != null && _relay.IsConnected,
                 _relay == null ? "單機模式" : _relay.StatusText);
+
+            _hud.SetPlayerCount(_loop.Book.PlayerCount);
+            _hud.ShowLeaderboard(_loop.Book.TopPlayers(LeaderboardSize));
         }
 
         private void ResetHorsesToGate()

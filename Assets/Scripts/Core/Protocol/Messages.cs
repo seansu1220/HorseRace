@@ -16,10 +16,13 @@ namespace HorseRace.Core.Protocol
         // 上行（手機 → 大螢幕）
         public const string Join = "join";
         public const string Step = "step";
+        public const string Bet = "bet";
 
         // 下行（大螢幕 → 手機）
         public const string Phase = "phase";
         public const string Drive = "drive";
+        public const string Wallet = "wallet";
+        public const string Result = "result";
     }
 
     /// <summary>手機送上來的訊息。所有上行訊息共用這一個扁平結構。</summary>
@@ -34,6 +37,9 @@ namespace HorseRace.Core.Protocol
 
         /// <summary>本次回報的步數增量。</summary>
         public int n;
+
+        /// <summary>下注金額。</summary>
+        public int amount;
 
         /// <summary>玩家暱稱。</summary>
         public string nick;
@@ -74,5 +80,59 @@ namespace HorseRace.Core.Protocol
 
         /// <summary>依閘號排列的驅動強度。</summary>
         public float[] d;
+    }
+
+    /// <summary>一筆注。</summary>
+    [Serializable]
+    public sealed class BetInfo
+    {
+        public int lane;
+        public int amount;
+    }
+
+    /// <summary>
+    /// 個人錢包。這是唯一一種「只送給單一玩家」的訊息，
+    /// 中繼站看到 <see cref="to"/> 就只轉給對應的那一台手機。
+    /// </summary>
+    [Serializable]
+    public sealed class WalletMessage
+    {
+        public string t = MessageType.Wallet;
+
+        /// <summary>目標玩家的識別碼。中繼站據此定向轉發。</summary>
+        public string to;
+
+        public string nick;
+        public int balance;
+        public BetInfo[] bets;
+
+        /// <summary>上一場的派彩金額（含本金）。</summary>
+        public int payout;
+
+        /// <summary>上一場的淨輸贏，可為負數。</summary>
+        public int delta;
+
+        /// <summary>下注被拒絕的原因；空字串代表沒有問題。呈現文字由手機端決定。</summary>
+        public string reject;
+    }
+
+    /// <summary>排行榜的一列。</summary>
+    [Serializable]
+    public sealed class LeaderEntry
+    {
+        public string name;
+        public int balance;
+    }
+
+    /// <summary>賽果與排行榜，廣播給所有手機。</summary>
+    [Serializable]
+    public sealed class ResultMessage
+    {
+        public string t = MessageType.Result;
+
+        /// <summary>依名次排列的閘號，索引 0 是冠軍。</summary>
+        public int[] order;
+
+        public LeaderEntry[] top;
     }
 }

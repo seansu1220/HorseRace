@@ -89,6 +89,20 @@ function broadcastToPlayers(payload) {
   }
 }
 
+/**
+ * 定向轉發：大螢幕送出的訊息若帶 `to` 欄位，就只送給該玩家。
+ * 個人錢包屬於這一類——沒必要把每個人的籌碼廣播給全場。
+ * 找不到對應連線時安靜丟棄（玩家可能剛斷線），不視為錯誤。
+ */
+function sendToPlayer(playerId, payload) {
+  for (const player of players) {
+    if (player.playerId === playerId) {
+      send(player, payload);
+      return;
+    }
+  }
+}
+
 function describe(socket) {
   return socket === host ? 'host' : 'player';
 }
@@ -116,20 +130,32 @@ wss.on('connection', (socket, request) => {
 
     // 只窺看 t 欄位做路由，其餘內容原封不動轉發。
     // 壞掉的封包只影響送出它的那條連線，絕不能中斷賽事。
-    let type = null;
+    let message = null;
     try {
-      type = JSON.parse(payload).t;
+      message = JSON.parse(payload);
     } catch (error) {
       console.warn(`[relay] 收到無法解析的訊息（${describe(socket)}），已丟棄`);
       return;
     }
 
     if (socket === host) {
-      if (type === 'phase') lastPhaseMessage = payload;
-      broadcastToPlayers(payload);
-    } else {
-      send(host, payload);
+      if (message.t === 'phase') lastPhaseMessage = payload;
+
+      if (message.to) {
+        sendToPlayer(message.to, payload);
+      } else {
+        broadcastToPlayers(payload);
+      }
+      return;
     }
+
+    // 從 join 訊息認得這條連線屬於哪個玩家，之後大螢幕才有辦法定向回覆。
+    // 這是伺服器唯一「看內容」的地方，純粹為了定址，不涉及任何遊戲規則。
+    if (message.t === 'join' && typeof message.pid === 'string' && message.pid) {
+      socket.playerId = message.pid;
+    }
+
+    send(host, payload);
   });
 
   socket.on('close', () => {

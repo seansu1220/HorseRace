@@ -1,9 +1,11 @@
 /* 手機端樣式。原生 CSS、無框架、無建置流程——改完存檔重整就生效。
-   目標是 iOS Safari 與 Android Chrome 近三年版本。 */
+   目標是 iOS Safari 與 Android Chrome 近三年版本。
+   所有可點元素至少 44pt 高，單手可操作。 */
 
 :root {
   --bg: #0d1017;
   --panel: #171b25;
+  --panel-hi: #1f2533;
   --line: #262c3a;
   --text: #eef1f6;
   --muted: #8d95a6;
@@ -16,7 +18,7 @@
 
 html, body {
   margin: 0;
-  height: 100%;
+  min-height: 100%;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC",
@@ -32,6 +34,7 @@ html, body {
 body {
   display: flex;
   flex-direction: column;
+  min-height: 100vh;
   padding: env(safe-area-inset-top) env(safe-area-inset-right)
            env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
@@ -39,9 +42,12 @@ body {
 /* ---- 頂部狀態列 ---- */
 
 .bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
@@ -50,31 +56,80 @@ body {
 .phase { font-size: 17px; font-weight: 700; }
 .countdown { font-size: 17px; color: var(--accent); font-variant-numeric: tabular-nums; }
 
-.dot {
+.balance {
   margin-left: auto;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--bad);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
 }
+
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); flex: none; }
 .dot.online { background: var(--ok); }
 
-/* ---- 面板 ---- */
+/* ---- 畫面 ---- */
 
-.panel {
+.screen {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 20px 18px 26px;
-  gap: 16px;
+  padding: 20px 18px 28px;
+  gap: 14px;
   min-height: 0;
 }
 
 h1 { margin: 0; font-size: 22px; }
+h2.section-title { margin: 8px 0 0; font-size: 16px; color: var(--muted); }
 .hint { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
-.note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.note { margin: 0; min-height: 20px; font-size: 14px; line-height: 1.5; color: var(--bad); }
 
-/* ---- 選馬 ---- */
+/* ---- 進場 ---- */
+
+.nick-input {
+  min-height: 56px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 19px;
+  /* iOS 在字級小於 16px 時會自動縮放頁面 */
+}
+.nick-input:focus { outline: 2px solid var(--accent); }
+
+.primary-button {
+  min-height: 56px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #1a1400;
+  font-size: 19px;
+  font-weight: 800;
+}
+.primary-button:active { filter: brightness(0.9); }
+
+/* ---- 籌碼列 ---- */
+
+.chip-row { display: flex; gap: 10px; }
+
+.chip-button {
+  flex: 1;
+  min-height: 52px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.chip-button.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1400;
+}
+
+/* ---- 馬匹清單 ---- */
 
 .horse-list { display: flex; flex-direction: column; gap: 12px; }
 
@@ -82,8 +137,7 @@ h1 { margin: 0; font-size: 22px; }
   display: flex;
   align-items: center;
   gap: 14px;
-  /* 最小 44pt 的觸控目標 */
-  min-height: 64px;
+  min-height: 66px;
   padding: 0 18px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -93,19 +147,17 @@ h1 { margin: 0; font-size: 22px; }
   font-weight: 600;
   text-align: left;
 }
-.horse-button:active { background: #1f2533; }
+.horse-button:active { background: var(--panel-hi); }
+.horse-button:disabled { opacity: 0.45; }
 
-.horse-odds { margin-left: auto; color: var(--accent); font-size: 16px; }
+.horse-odds { margin-left: auto; color: var(--accent); font-size: 16px; flex: none; }
+.horse-stake { font-size: 14px; color: var(--ok); flex: none; }
 
-.chip {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: #666;
-  flex: none;
-}
+.chip { width: 22px; height: 22px; border-radius: 6px; background: #666; flex: none; }
 
-/* ---- 主畫面 ---- */
+.my-bets { display: flex; flex-direction: column; gap: 6px; font-size: 15px; color: var(--muted); }
+
+/* ---- 體力驅動 ---- */
 
 .mine { display: flex; align-items: center; gap: 10px; }
 .mine-name { font-size: 20px; font-weight: 700; }
@@ -160,7 +212,7 @@ h1 { margin: 0; font-size: 22px; }
 
 .tap-pad {
   flex: 1;
-  min-height: 180px;
+  min-height: 170px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -171,7 +223,7 @@ h1 { margin: 0; font-size: 22px; }
   background: var(--panel);
   color: var(--text);
 }
-.tap-pad:active { background: #232a3a; border-color: var(--accent); }
+.tap-pad:active { background: var(--panel-hi); border-color: var(--accent); }
 .tap-title { font-size: 26px; font-weight: 800; }
 .tap-sub { font-size: 14px; color: var(--muted); }
 
@@ -183,4 +235,38 @@ h1 { margin: 0; font-size: 22px; }
   color: #1a1400;
   font-size: 17px;
   font-weight: 700;
+}
+
+/* ---- 結果與排行 ---- */
+
+.delta { margin: 0; font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.delta.win { color: var(--ok); }
+.delta.lose { color: var(--bad); }
+.delta.flat { color: var(--muted); }
+
+.result-order, .leader-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.result-order li, .leader-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: var(--panel);
+  font-size: 16px;
+}
+.result-order li.first, .leader-list li.first { color: var(--accent); font-weight: 700; }
+.result-order .rank, .leader-list .rank { width: 22px; color: var(--muted); flex: none; }
+.result-order .value, .leader-list .value {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }

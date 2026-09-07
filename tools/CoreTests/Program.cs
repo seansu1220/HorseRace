@@ -33,6 +33,7 @@ namespace HorseRace.Tests
             OddsTests();
             EffectTests();
             DriveTests();
+            BettingTests();
             ConfigTests();
             GameLoopTests();
 
@@ -518,6 +519,159 @@ namespace HorseRace.Tests
             }
 
             return (double)rankSum / races;
+        }
+
+        // ---------------------------------------------------------- 下注與籌碼
+
+        private static void BettingTests()
+        {
+            Section("BettingBook");
+
+            GameConfig config = DefaultConfig();
+            RaceConfig race = config.Race;
+            BettingBook book = new BettingBook(race);
+
+            PlayerAccount ming = book.Join("p1", "阿明");
+            Check("新玩家拿到初始籌碼", ming.Balance == race.StartingChips);
+            Check("玩家數正確", book.PlayerCount == 1);
+
+            PlayerAccount again = book.Join("p1", "阿明改名");
+            Check("同一個 pid 再次加入不會重複建立", book.PlayerCount == 1);
+            Check("重新加入保留籌碼", again.Balance == race.StartingChips);
+            Check("重新加入會更新暱稱", again.Nickname == "阿明改名");
+
+            // 暱稱來自現場手機，是不可信輸入
+            PlayerAccount nameless = book.Join("p2", "");
+            Check("空暱稱會給預設名字", !string.IsNullOrEmpty(nameless.Nickname));
+            PlayerAccount messy = book.Join("p3", "壞名 字非常非常非常長超過上限");
+            Check("暱稱會去掉控制字元並截斷長度",
+                messy.Nickname.IndexOf('') < 0
+                && messy.Nickname.IndexOf(' ') < 0
+                && messy.Nickname.Length <= BettingBook.MaxNicknameLength);
+
+            // --- 下注 ---
+            book.BeginRace();
+            int before = ming.Balance;
+
+            Check("正常下注會成功",
+                book.TryPlaceBet("p1", 0, 100, 4) == BetRejection.None);
+            Check("下注當下就扣籌碼", ming.Balance == before - 100);
+            Check("注單記錄正確", ming.StakeOn(0) == 100 && ming.TotalStaked == 100);
+
+            book.TryPlaceBet("p1", 0, 50, 4);
+            Check("押同一匹會併成一筆",
+                ming.Bets.Count == 1 && ming.StakeOn(0) == 150);
+
+            book.TryPlaceBet("p1", 2, 200, 4);
+            Check("押不同匹會分開記",
+                ming.Bets.Count == 2 && ming.StakeOn(2) == 200 && ming.TotalStaked == 350);
+
+            Check("找不到的玩家會被拒絕",
+                book.TryPlaceBet("nobody", 0, 100, 4) == BetRejection.UnknownPlayer);
+            Check("無效閘號會被拒絕",
+                book.TryPlaceBet("p1", 9, 100, 4) == BetRejection.InvalidLane);
+            Check("低於最低下注額會被拒絕",
+                book.TryPlaceBet("p1", 0, race.MinimumBet - 1, 4) == BetRejection.BelowMinimum);
+            Check("籌碼不足會被拒絕",
+                book.TryPlaceBet("p1", 0, ming.Balance + 1, 4) == BetRejection.InsufficientChips);
+
+            int balanceAfterRejections = ming.Balance;
+            book.TryPlaceBet("p1", 0, ming.Balance + 1, 4);
+            Check("被拒絕的下注不會動到籌碼", ming.Balance == balanceAfterRejections);
+
+            // --- 結算 ---
+            double[] odds = { 3.0, 5.0, 2.0, 8.0 };
+            int stakedTotal = ming.TotalStaked;      // 150 押 0 號、200 押 2 號
+            int balanceBeforeSettle = ming.Balance;
+
+            SettlementResult settlement = book.Settle(0, odds);
+
+            Check("押中的玩家拿到 注額 × 賠率",
+                ming.Balance == balanceBeforeSettle + (int)Math.Round(150 * 3.0));
+            Check("派彩明細含中獎玩家",
+                settlement.PayoutByPlayer.ContainsKey("p1")
+                && settlement.PayoutByPlayer["p1"] == 450);
+            Check("淨輸贏計算正確（派彩 450 − 押注 350 = +100）",
+                ming.LastDelta == 450 - stakedTotal);
+            Check("冠軍閘號有記錄", settlement.WinnerLane == 0);
+
+            PlayerAccount loser = book.Find("p2");
+            book.BeginRace();
+            book.TryPlaceBet("p2", 1, 100, 4);
+            int loserBalance = loser.Balance;
+            book.Settle(0, odds);
+            Check("沒押中的玩家不會再被扣錢（本金下注時已扣）",
+                loser.Balance == loserBalance);
+            Check("沒押中的玩家淨輸贏為負", loser.LastDelta == -100);
+            Check("沒押中的玩家不出現在派彩明細",
+                !book.Settle(0, odds).PayoutByPlayer.ContainsKey("p2"));
+
+            // 完全沒下注的玩家不該被影響
+            PlayerAccount idle = book.Join("p9", "旁觀者");
+            int idleBalance = idle.Balance;
+            book.BeginRace();
+            book.Settle(0, odds);
+            Check("沒下注的玩家籌碼不變", idle.Balance == idleBalance);
+            Check("沒下注的玩家淨輸贏為 0", idle.LastDelta == 0);
+
+            // --- 換場清空與同情籌碼 ---
+            book.BeginRace();
+            Check("換場會清空注單", ming.Bets.Count == 0);
+
+            PlayerAccount broke = book.Join("p4", "輸光");
+            broke.Balance = 0;
+            book.BeginRace();
+            Check("輸光的玩家會被補到同情籌碼", broke.Balance == race.CharityChips);
+
+            PlayerAccount rich = book.Join("p5", "有錢");
+            rich.Balance = race.StartingChips * 5;
+            book.BeginRace();
+            Check("籌碼足夠的玩家不會被同情籌碼影響",
+                rich.Balance == race.StartingChips * 5);
+
+            RaceConfig noCharity = DefaultConfig().Race;
+            noCharity.CharityChips = 0;
+            noCharity.Validate();
+            BettingBook strict = new BettingBook(noCharity);
+            PlayerAccount bankrupt = strict.Join("x", "破產");
+            bankrupt.Balance = 0;
+            strict.BeginRace();
+            Check("同情籌碼設 0 時不補錢", bankrupt.Balance == 0);
+
+            // --- 排行榜 ---
+            BettingBook ranking = new BettingBook(race);
+            ranking.Join("a", "A").Balance = 500;
+            ranking.Join("b", "B").Balance = 1500;
+            ranking.Join("c", "C").Balance = 1000;
+            List<PlayerAccount> top = ranking.TopPlayers(2);
+            Check("排行榜依籌碼由高到低",
+                top.Count == 2 && top[0].PlayerId == "b" && top[1].PlayerId == "c");
+            Check("排行榜取全部時不會少人", ranking.TopPlayers(0).Count == 3);
+
+            // --- 流程層的階段檢查 ---
+            GameConfig loopConfig = DefaultConfig();
+            loopConfig.Race.IdleSeconds = 1.0;
+            loopConfig.Race.BettingSeconds = 2.0;
+            GameLoop loop = new GameLoop(loopConfig, 7);
+            loop.Book.Join("p1", "阿明");
+
+            Check("待機階段不能下注",
+                loop.TryPlaceBet("p1", 0, 100) == BetRejection.NotBettingPhase);
+
+            loop.SkipPhase(); // Idle -> Betting
+            Check("下注階段可以下注",
+                loop.TryPlaceBet("p1", 0, 100) == BetRejection.None);
+
+            loop.SkipPhase(); // Betting -> Racing
+            Check("比賽開始後不能再下注",
+                loop.TryPlaceBet("p1", 0, 100) == BetRejection.NotBettingPhase);
+
+            loop.SetOdds(loop.RaceNumber, new[] { 2.0, 3.0, 4.0, 5.0 });
+            loop.SkipPhase(); // Racing -> Photo
+            loop.SkipPhase(); // Photo -> Settle
+            Check("進入結算階段時自動派彩", loop.LastSettlement != null);
+            Check("結算的冠軍與名次一致",
+                loop.LastSettlement.WinnerLane == loop.FinishOrder[0]);
         }
 
         // ---------------------------------------------------------------- 設定

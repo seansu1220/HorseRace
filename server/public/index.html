@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <meta name="theme-color" content="#0d1017">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <title>賽馬場 · 體力驅動</title>
+  <title>賽馬場</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,18 +13,31 @@
   <header class="bar">
     <span id="phaseLabel" class="phase">連線中…</span>
     <span id="countdown" class="countdown"></span>
+    <span id="balance" class="balance"></span>
     <span id="connection" class="dot offline" title="連線狀態"></span>
   </header>
 
-  <!-- 選馬 -->
-  <section id="pickPanel" class="panel">
-    <h1>選一匹馬</h1>
-    <p class="hint">選好之後，你搖手機的力道會直接推動這匹馬。</p>
-    <div id="horseList" class="horse-list"></div>
+  <!-- 進場 -->
+  <section id="joinScreen" class="screen">
+    <h1>加入賽馬場</h1>
+    <p class="hint">取個名字，大螢幕的排行榜上會顯示。</p>
+    <input id="nickInput" class="nick-input" type="text" maxlength="10"
+           placeholder="你的暱稱" autocomplete="off" enterkeyhint="go">
+    <button id="joinButton" class="primary-button" type="button">進場</button>
   </section>
 
-  <!-- 主畫面 -->
-  <section id="drivePanel" class="panel" hidden>
+  <!-- 下注 -->
+  <section id="betScreen" class="screen" hidden>
+    <h1>下注</h1>
+    <p class="hint">先選金額，再點你要押的馬。</p>
+    <div id="chipRow" class="chip-row"></div>
+    <div id="betHorses" class="horse-list"></div>
+    <p id="betNote" class="note"></p>
+    <div id="myBets" class="my-bets"></div>
+  </section>
+
+  <!-- 體力驅動 -->
+  <section id="driveScreen" class="screen" hidden>
     <div class="mine">
       <span id="mineChip" class="chip"></span>
       <span id="mineName" class="mine-name">—</span>
@@ -50,6 +63,30 @@
       開啟動作感測器
     </button>
     <p id="motionNote" class="note"></p>
+  </section>
+
+  <!-- 選要推哪匹（沒下注時） -->
+  <section id="pickScreen" class="screen" hidden>
+    <h1>要推哪一匹？</h1>
+    <p class="hint">你這場沒有下注，可以挑一匹來出力。</p>
+    <div id="pickHorses" class="horse-list"></div>
+  </section>
+
+  <!-- 結果 -->
+  <section id="resultScreen" class="screen" hidden>
+    <h1 id="resultTitle">結果</h1>
+    <p id="resultDelta" class="delta"></p>
+    <ol id="resultOrder" class="result-order"></ol>
+    <h2 class="section-title">籌碼排行</h2>
+    <ol id="leaderList" class="leader-list"></ol>
+  </section>
+
+  <!-- 待機 -->
+  <section id="idleScreen" class="screen" hidden>
+    <h1>等待下一場</h1>
+    <p class="hint">下注即將開始，準備好你的籌碼。</p>
+    <h2 class="section-title">籌碼排行</h2>
+    <ol id="idleLeader" class="leader-list"></ol>
   </section>
 
   <script src="app.js"></script>
