@@ -204,6 +204,32 @@ WebSocket，JSON 文字幀。所有訊息都是 `{ "t": "<type>", ... }`。
 | 玩家送壞封包 | try/catch 只踢那條連線，記 log，**絕不影響賽事** |
 | 免費層冷啟動 | 活動前 10 分鐘手動開一次頁面喚醒；正式場建議升到不休眠的付費檔 |
 
+### 6.1 本機模式（目前預設）：大螢幕自己開伺服器與外網通道
+
+`race.json` 的 `Network.RelayUrl` 指向 `localhost` 時，大螢幕啟動時由 `Net/LocalRelayLauncher` 自動：
+
+1. 啟動 `server/`（Node.js 中繼伺服器）；該埠已有伺服器在跑就直接沿用。缺 `node_modules` 會自動 `npm install`
+2. 啟動 `cloudflared tunnel --url http://127.0.0.1:<埠>`，取得 `https://xxxx.trycloudflare.com` 公開網址放進 QRCode
+   （第一次使用會自動下載 cloudflared）
+3. 程式結束（含編輯器停止播放）時收掉兩個子行程；程式當掉時由 Windows Job Object 連帶收掉，不留孤兒行程
+
+QRCode 網址的優先序：`Network.JoinUrl`（手動指定）→ 外網通道 → 區網 IP。
+
+| 情境 | 處理方式 |
+|---|---|
+| 通道還在準備（剛啟動） | QRCode 先不顯示，下方文字顯示進度 |
+| 通道逾時（`TunnelTimeoutSeconds`）或失敗 | QRCode 退回區網網址並標示「限同 Wi-Fi」；背景持續重試，好了自動換回 |
+| cloudflared 意外結束 | 自動重開（網址會換，QRCode 跟著換），重試間隔 5→60 秒指數退避 |
+| 伺服器意外結束 | 3 秒後自動重開 |
+| 沒裝 Node.js / 找不到 server 資料夾 | 大螢幕連線狀態直接顯示原因 |
+
+**大螢幕金鑰**：通道開出去之後任何人都連得到伺服器，所以伺服器以環境變數 `HOST_KEY` 啟動，
+`role=host` 的連線必須帶 `key=` 參數，錯誤就以關閉代碼 4001 拒絕，避免有人冒充大螢幕。
+金鑰存在使用者資料夾的 `relay-host-key.txt`；手動 `npm start` 未設定 `HOST_KEY` 時不檢查（開發用）。
+
+**已知限制**：trycloudflare 臨時通道每次啟動網址都不同，而且是 Cloudflare 提供給測試用的免費服務、沒有可用性保證。
+若需要固定網址，可以改用 Cloudflare 帳號的具名通道（需要自己的網域），或部署到雲端（把 `RelayUrl` 改成雲端位址即可，本機模式自動停用）。
+
 ---
 
 ## 7. 技術選型
@@ -218,8 +244,10 @@ WebSocket，JSON 文字幀。所有訊息都是 `{ "t": "<type>", ... }`。
 | 部署平台 | **Zeabur** 或 **Railway** | 支援 WebSocket 長連線、部署簡單 |
 
 **部署平台注意**：Firebase Hosting 與 Vercel Serverless **不支援 WebSocket 長連線**，不能用。
-Render 免費層閒置 15 分鐘會休眠、冷啟動約 30 秒。
-活動當天建議用最低付費檔（約 US$5/月）換取不休眠，這錢很值得。
+Render 免費層閒置 15 分鐘會休眠、喚醒約 1 分鐘（2026-02 起 WebSocket 訊息也算活動）；
+Zeabur 免費方案同樣會閒置休眠；Railway 已無長期免費方案（僅一次性試用額度）。
+活動當天若走雲端，建議用最低付費檔（約 US$5/月）換取不休眠。
+目前預設走「本機伺服器 + Cloudflare 臨時通道」（見 6.1），完全免費、不需要部署。
 
 ---
 

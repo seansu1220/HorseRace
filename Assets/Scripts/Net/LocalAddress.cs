@@ -103,7 +103,7 @@ namespace HorseRace.Net
             bool secure = uri.Scheme == "wss" || uri.Scheme == "https";
             string host = uri.Host;
 
-            if (IsLoopback(host))
+            if (IsLoopbackHost(host))
             {
                 string lan = FindLanIPv4();
                 if (string.IsNullOrEmpty(lan))
@@ -122,11 +122,13 @@ namespace HorseRace.Net
                 : scheme + "://" + host + ":" + uri.Port + "/";
         }
 
-        private static bool IsLoopback(string host)
+        /// <summary>主機名稱是否指向本機（Uri.Host 對 IPv6 會帶中括號，兩種寫法都認）。</summary>
+        public static bool IsLoopbackHost(string host)
         {
             return string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
                    || host == "127.0.0.1"
-                   || host == "::1";
+                   || host == "::1"
+                   || host == "[::1]";
         }
     }
 }

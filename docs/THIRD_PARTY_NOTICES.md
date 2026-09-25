@@ -23,6 +23,20 @@
 - 授權：MIT
 - 來源：https://github.com/websockets/ws
 - 位置：`server/node_modules/`（不進版控，由 `npm install` 取得）
+- 建置版會把 `node_modules/` 一起複製到 exe 旁的 `server/`，其中包含 ws 的 LICENSE 檔，符合 MIT 的標示要求
+
+---
+
+## cloudflared（Cloudflare Tunnel 用戶端）
+
+- 用途：大螢幕自動開啟 Cloudflare 臨時通道（Quick Tunnel），讓手機用公開的 https 網址連進本機中繼伺服器
+- 授權：Apache License 2.0
+- 來源：https://github.com/cloudflare/cloudflared
+- **不隨專案散布**：第一次使用時由 `Net/CloudflaredInstaller` 從官方 GitHub Release 下載到
+  `%USERPROFILE%\AppData\LocalLow\DefaultCompany\HorseRace\tools\cloudflared.exe`；
+  也可以在 `race.json` 的 `Network.CloudflaredPath` 指定自行安裝的版本
+- 服務條款注意：trycloudflare.com 的臨時通道是 Cloudflare 提供給測試與開發用的免費服務，
+  **沒有可用性保證**。因此通道失敗時 QRCode 會自動退回區網網址（見 `docs/ARCHITECTURE.md` 第 6 節）
 
 ---
 

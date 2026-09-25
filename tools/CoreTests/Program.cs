@@ -734,6 +734,31 @@ namespace HorseRace.Tests
                 && badHorse.Stamina >= 0.0
                 && badHorse.Volatility <= 1.0);
 
+            NetworkConfig defaultNetwork = new NetworkConfig();
+            defaultNetwork.Validate();
+            Check("預設會自動開本機伺服器與外網通道",
+                defaultNetwork.AutoStartLocalRelay && defaultNetwork.UseTunnel);
+
+            NetworkConfig brokenNetwork = new NetworkConfig
+            {
+                NodeCommand = "",
+                CloudflaredDownloadUrl = null,
+                ServerDirectory = null,
+                CloudflaredPath = null,
+                TunnelTimeoutSeconds = -1.0
+            };
+            brokenNetwork.Validate();
+            Check("空的 Node 指令退回預設", brokenNetwork.NodeCommand == NetworkConfig.DefaultNodeCommand);
+            Check("空的下載網址退回預設",
+                brokenNetwork.CloudflaredDownloadUrl == NetworkConfig.DefaultCloudflaredDownloadUrl);
+            Check("null 路徑修正為空字串（代表自動尋找）",
+                brokenNetwork.ServerDirectory == "" && brokenNetwork.CloudflaredPath == "");
+            Check("通道逾時被夾到下限", brokenNetwork.TunnelTimeoutSeconds >= 5.0);
+
+            NetworkConfig slowNetwork = new NetworkConfig { TunnelTimeoutSeconds = 99999.0 };
+            slowNetwork.Validate();
+            Check("通道逾時被夾到上限", slowNetwork.TunnelTimeoutSeconds <= 300.0);
+
             ItemConfig brokenItems = new ItemConfig
             {
                 BoostMultiplier = 0.5,

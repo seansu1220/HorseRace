@@ -46,7 +46,14 @@
     "AutoConnect": true,
     "JoinUrl": "",
     "ReconnectSeconds": 2.0,
-    "SnapshotsPerSecond": 10.0
+    "SnapshotsPerSecond": 10.0,
+
+    "AutoStartLocalRelay": true,
+    "UseTunnel": true,
+    "ServerDirectory": "",
+    "NodeCommand": "node",
+    "CloudflaredPath": "",
+    "TunnelTimeoutSeconds": 45.0
   },
 
   "Roster": [

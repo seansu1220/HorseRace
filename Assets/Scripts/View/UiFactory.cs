@@ -75,6 +75,19 @@ namespace HorseRace.View
             return text;
         }
 
+        /// <summary>
+        /// 讓文字在框內放不下時自動縮小（最小到 <paramref name="minFontSize"/>），而不是溢出框外。
+        /// 用於內容長度不固定的欄位，例如網址與錯誤訊息。
+        /// </summary>
+        public static void ShrinkToFit(Text text, int minFontSize)
+        {
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Truncate;
+            text.resizeTextForBestFit = true;
+            text.resizeTextMinSize = minFontSize;
+            text.resizeTextMaxSize = text.fontSize;
+        }
+
         /// <summary>以固定尺寸擺放：指定錨點、樞紐、相對位置與大小。</summary>
         public static void Place(
             RectTransform rect, Vector2 anchor, Vector2 pivot, Vector2 position, Vector2 size)

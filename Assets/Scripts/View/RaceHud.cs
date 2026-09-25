@@ -377,10 +377,12 @@ namespace HorseRace.View
             _qrImage.raycastTarget = false;
             _qrImage.enabled = false;
 
+            // 外網通道的網址很長（xxxx-xxxx-xxxx.trycloudflare.com），放不下時自動縮字
             _joinUrlLabel = UiFactory.Label(panel, "JoinUrl", "", 22,
-                TextAnchor.UpperCenter, UiFactory.TextColor);
+                TextAnchor.MiddleCenter, UiFactory.TextColor);
             UiFactory.Place((RectTransform)_joinUrlLabel.transform, new Vector2(0.5f, 1f),
                 new Vector2(0.5f, 1f), new Vector2(0f, -330f), new Vector2(330f, 34f));
+            UiFactory.ShrinkToFit(_joinUrlLabel, 12);
 
             _playerCountLabel = UiFactory.Label(panel, "PlayerCount", "0 人已加入", 26,
                 TextAnchor.UpperCenter, UiFactory.AccentColor, FontStyle.Bold);
@@ -388,9 +390,10 @@ namespace HorseRace.View
                 new Vector2(0.5f, 1f), new Vector2(0f, -368f), new Vector2(320f, 36f));
 
             _connectionLabel = UiFactory.Label(panel, "Connection", "尚未連線", 22,
-                TextAnchor.UpperCenter, UiFactory.MutedTextColor, FontStyle.Bold);
+                TextAnchor.MiddleCenter, UiFactory.MutedTextColor, FontStyle.Bold);
             UiFactory.Place((RectTransform)_connectionLabel.transform, new Vector2(0.5f, 1f),
                 new Vector2(0.5f, 1f), new Vector2(0f, -406f), new Vector2(320f, 34f));
+            UiFactory.ShrinkToFit(_connectionLabel, 14);
         }
 
         private void BuildLeaderboard(int laneCount)
@@ -424,16 +427,31 @@ namespace HorseRace.View
                 new Vector2(0f, 1f), new Vector2(28f, -76f), new Vector2(400f, 40f));
         }
 
-        /// <summary>設定掃碼入場的資訊。傳入 null 的貼圖代表產生失敗，此時只顯示網址文字。</summary>
-        public void SetJoinInfo(Texture2D qrCode, string joinUrl)
+        /// <summary>
+        /// 設定掃碼入場的資訊。貼圖傳 null 代表目前沒有可掃的網址（通道準備中或產生失敗），
+        /// 此時隱藏 QRCode、只顯示說明文字。HUD 接手貼圖的所有權，換掉時負責釋放。
+        /// </summary>
+        public void SetJoinInfo(Texture2D qrCode, string caption)
         {
-            if (qrCode != null)
+            Texture previous = _qrImage.texture;
+            _qrImage.texture = qrCode;
+            _qrImage.enabled = qrCode != null;
+
+            if (previous != null && previous != qrCode)
             {
-                _qrImage.texture = qrCode;
-                _qrImage.enabled = true;
+                Destroy(previous);
             }
 
-            _joinUrlLabel.text = string.IsNullOrEmpty(joinUrl) ? "（無法取得網址）" : joinUrl;
+            _joinUrlLabel.text = string.IsNullOrEmpty(caption) ? "（無法取得網址）" : caption;
+        }
+
+        private void OnDestroy()
+        {
+            // 程式生成的貼圖不會跟著 GameObject 一起回收，按 R 重開時要自己收
+            if (_qrImage != null && _qrImage.texture != null)
+            {
+                Destroy(_qrImage.texture);
+            }
         }
 
         public void SetPlayerCount(int count)

@@ -1,5 +1,109 @@
 # 變更紀錄
 
+## 2026-09-25 — 大螢幕自動啟動中繼伺服器與 Cloudflare 外網通道
+
+### 問題描述
+
+使用者用手機掃大螢幕上的 QRCode 後沒有任何反應。
+
+### 根本原因
+
+1. **中繼伺服器根本沒有開。** QRCode 指向 `http://192.168.1.113:8080/`，但必須另外開終端機執行
+   `npm start`，8080 埠上沒有任何程式在聽，手機自然連不上。這個步驟很容易忘，現場也不該依賴它。
+2. 就算伺服器有開，區網網址也只有**連同一個 Wi-Fi** 的手機打得開（用行動網路、訪客網路或路由器
+   開了 AP 隔離都不行），而且 http 拿不到手機的動作感測器權限。
+
+### 設計決策
+
+- **讓大螢幕自己開伺服器與通道，而不是部署到雲端。** 雲端免費層都會閒置休眠
+  （Render 約 15 分鐘，喚醒約 1 分鐘），Railway 已沒有長期免費方案。大螢幕電腦本來就要在現場，
+  伺服器跟著它最單純，而且完全免費。
+- **用 Cloudflare 臨時通道（Quick Tunnel）取得公開 https 網址**：免帳號、免費，手機用行動網路也能連，
+  也拿得到動作感測器權限。代價是網址每次啟動都不同，所以從 cloudflared 的輸出自動抓網址放進 QRCode。
+- **通道失敗時自動退回區網網址**：trycloudflare 沒有可用性保證，不能讓它成為單點故障。
+  QRCode 下方會標示「限同 Wi-Fi」，背景持續重試，通道好了自動換回。
+- **加上大螢幕金鑰**：伺服器對外開放後任何人都連得到，原本只要把連線標成 `role=host`
+  就能冒充大螢幕、對全場手機亂發賽果。這不是遊戲規則，只是身分檢查，符合「伺服器只做路由」的紀律。
+- **伺服器程式碼不變**：同一份 `server/` 日後仍可部署到雲端，只要把 `RelayUrl` 改成雲端位址，
+  本機模式就會自動停用。
+
+### 修改的檔案與內容
+
+**Core**
+- `Config/NetworkConfig.cs`：新增 `AutoStartLocalRelay`、`UseTunnel`、`ServerDirectory`、`NodeCommand`、
+  `CloudflaredPath`、`CloudflaredDownloadUrl`、`TunnelTimeoutSeconds`，`Validate()` 修正空值與範圍
+
+**Net（新增）**
+- `LocalRelayLauncher.cs`：總控。背景啟動 node 伺服器與通道、維護狀態快照、log 佇列；
+  該埠已有伺服器時沿用，它關掉後自動接手；伺服器意外結束 3 秒後重開；缺 `node_modules` 自動 `npm install`。
+  **完全不碰 Unity API**，主執行緒透過 `Status` 與 `TryDequeueLog` 取資料
+- `QuickTunnel.cs`：執行 cloudflared、解析公開網址（排除錯誤訊息裡的 `api.trycloudflare.com`）、
+  以「已連上節點」或「實際 HTTP 探測成功」判定就緒；意外結束自動重開，間隔 5→60 秒指數退避
+- `CloudflaredInstaller.cs`：依序找設定路徑 → PATH → 先前下載的位置，都沒有就從官方 GitHub 下載。
+  先寫 `.part` 再驗證（大小與 `MZ` 檔頭）後改名。**不設總時間上限、改用「60 秒無進度才放棄」**——
+  實測這台電腦連 GitHub 只有約 90 KB/s，55 MB 要下載十分鐘以上
+- `ChildProcess.cs`：子行程包裝（重導 stdout/stderr、結束通知、收掉行程）
+- `ProcessJob.cs`：Windows Job Object（KILL_ON_JOB_CLOSE），大螢幕當掉或被強制結束時子行程一起消失，不留佔著埠的孤兒
+- `HostKeyStore.cs`：產生並保存大螢幕金鑰（`persistentDataPath/relay-host-key.txt`）
+- `ExecutableLocator.cs`：在 PATH 中找執行檔，找不到時能給出「沒裝 Node.js」這種看得懂的訊息
+- `LocalRelayOptions.cs`：把設定與 Unity 路徑轉成純資料；編輯器與建置版的 `server/` 位置用同一條規則推導
+- `LocalAddress.cs`：`IsLoopbackHost` 改為公開（並認得 `[::1]`）
+- `RelayClient.cs`：被伺服器以 4001／4000 關閉時，狀態顯示「金鑰不符」「已被另一個大螢幕取代」
+
+**View**
+- `RaceDirector.cs`：啟動時先開連線再建場景；QRCode 網址優先序為「設定檔指定 → 外網通道 → 區網」，
+  通道狀態有變才重算；沒連上時顯示根本原因（例如「找不到 Node.js」）；結束時收掉子行程
+- `RaceHud.cs`：沒有網址時真的隱藏 QRCode（原本傳 null 會留著舊圖）；換圖時釋放舊貼圖；
+  網址與連線狀態欄位改為放不下就自動縮字
+- `UiFactory.cs`：新增 `ShrinkToFit`
+
+**Editor**
+- `PlayerBuild.cs`：建置成功後把 `server/`（含 `node_modules`）複製到 exe 旁邊
+
+**server**
+- `src/server.js`：新增 `HOST_KEY` 環境變數檢查，金鑰不符以關閉代碼 4001 拒絕（timing-safe 比對）；
+  未設定時不檢查，手動 `npm start` 的開發流程不受影響
+
+**設定與文件**
+- `StreamingAssets/config/race.json`：新增上述網路欄位
+- `docs/ARCHITECTURE.md`：新增 6.1「本機模式」；更新部署平台免費方案現況
+- `docs/THIRD_PARTY_NOTICES.md`：新增 cloudflared（Apache-2.0，執行期下載、不隨專案散布）
+- `server/README.md`：說明自動啟動與 `HOST_KEY`
+
+### 驗證
+
+- Core 單元測試 **123 項全綠**（新增 6 項 `NetworkConfig` 驗證測試）
+- 用 Unity 2022.3.22f1 自帶的 Roslyn 與編輯器產生的 `.rsp` 參考清單編譯 Core／Net／View／Editor 四個組件：
+  **零錯誤、零 C# 警告**（編輯器開著專案時無法跑 batch mode，改用此法）
+- 啟動器獨立測試程式（Net 層的啟動器完全不依賴 Unity，可直接用 dotnet 編譯執行）共 **50 項全綠**，另加一項強制結束測試：
+  - 純函式：網址解析（含排除 `api.trycloudflare.com`）、節點連線辨識、DoH 回應判讀、金鑰附加、
+    啟動條件（本機／雲端／關閉／單機）、編輯器與建置版的 `server/` 路徑推導
+  - **真實外網端對端**：啟動器自己開伺服器 + cloudflared → 約 16 秒就緒 → 透過
+    `https://xxxx.trycloudflare.com` 取得手機頁 → 手機以 `wss://` 經通道連入，
+    `join` 到得了大螢幕、定向 `wallet` 只回到該手機 → 關閉後埠釋放、無殘留 cloudflared
+  - 金鑰：錯誤金鑰（本機直連與經外網）都被 4001 拒絕，正確金鑰維持連線
+  - 沿用外部伺服器 → 外部伺服器關掉 → 啟動器 5 秒內接手，且接手後金鑰檢查生效
+  - **強制結束主程式**（模擬當掉）→ node 與 cloudflared 隨之消失、埠釋放（Job Object 生效）
+  - 下載：正常下載（55 MB、進度回報到 100%）、下載到錯誤頁或 404 會擋下且不留檔、
+    卡住 60 秒準時放棄、慢但持續有進度的下載超過 60 秒仍能完成
+
+### 驗證中發現並修正的問題
+
+1. **cloudflared 回報「已連上節點」時，網址在 DNS 上還查不到。** 第一版以此為就緒訊號，
+   測試立刻用本機 DNS 開網址得到「無法識別這台主機」——手機這時掃碼一樣打不開。
+   實測網址印出後約 3.5～7 秒公共 DNS 才查得到。更麻煩的是太早查會讓解析器快取「查無此網域」
+   （trycloudflare.com 的 SOA 負快取 60 秒），同一個 Wi-Fi 的手機都會跟著失敗。
+   改為：已連上節點 **且** 透過 Cloudflare／Google 的 DoH 確認查得到才放出 QRCode；
+   刻意不用本機 DNS 查，避免污染現場手機共用的快取；DoH 被擋時 20 秒後視為生效。
+2. **下載總時間上限會砍掉慢速但正常的下載。** 這台電腦連 GitHub 只有約 90 KB/s，
+   第一版的 10 分鐘總上限不夠。改為「60 秒完全沒有進度才放棄」。
+3. 下載失敗會殘留 `.part` 暫存檔，改為失敗時清掉。
+
+### 未能在本次驗證的部分
+
+- **Unity 編輯器內實際按 Play 的完整流程**：編輯器正開著專案，無法由此端操作，需要使用者按一次 Play 確認。
+- **`PlayerBuild` 複製 `server/` 到建置版**：同樣需要在編輯器建置一次才能確認。
+
 ## 2026-09-07 — M3／M4 手機連線互動：掃碼入場、下注、派彩
 
 ### 需求

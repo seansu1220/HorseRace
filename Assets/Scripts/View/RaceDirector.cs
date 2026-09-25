@@ -41,8 +41,14 @@ namespace HorseRace.View
         private float _oddsStartedAt;
 
         private RelayClient _relay;
+        private LocalRelayLauncher _localRelay;
         private DriveMessage _driveMessage;
         private float _nextDrivePushTime;
+
+        /// <summary>目前大螢幕上 QRCode 的內容與說明文字，用來判斷要不要重畫。</summary>
+        private string _shownJoinUrl;
+        private string _shownJoinCaption;
+        private LocalRelayStatus _seenRelayStatus;
 
         private void Awake()
         {
@@ -50,8 +56,10 @@ namespace HorseRace.View
 
             _config = ConfigLoader.Load();
             DebugCapture.AttachIfRequested(gameObject);
-            StartNewSession();
+
+            // 先開連線（含本機伺服器與外網通道），場景建好時 QRCode 才知道要放哪個網址
             StartRelay();
+            StartNewSession();
         }
 
         private void Update()
@@ -60,6 +68,7 @@ namespace HorseRace.View
 
             HandleDebugInput();
             PumpOddsCalculation();
+            PumpLocalRelay();
             PumpRelayInbox();
 
             _loop.Tick(deltaTime);
@@ -82,6 +91,13 @@ namespace HorseRace.View
                 _relay.Dispose();
                 _relay = null;
             }
+
+            // 收掉自己開的 node 與 cloudflared；編輯器停止播放時也會走到這裡
+            if (_localRelay != null)
+            {
+                _localRelay.Dispose();
+                _localRelay = null;
+            }
         }
 
         // ---- 場次控制 ----
@@ -101,7 +117,7 @@ namespace HorseRace.View
             OnPhaseEntered(_loop.Phase);
 
             // 介面是剛剛才重建的，掃碼資訊要跟著重新掛上去
-            PublishJoinInfo(_config.Network);
+            RefreshJoinInfo(true);
         }
 
         /// <summary>重新開始。順便重讀設定檔，現場調完參數按 R 就生效，不必重開程式。</summary>
@@ -173,6 +189,10 @@ namespace HorseRace.View
 
         // ---- 中繼伺服器 ----
 
+        /// <summary>
+        /// 連上中繼伺服器。連線位址指向本機時，先把伺服器與外網通道自己開起來。
+        /// 網路設定只在程式啟動時讀一次；按 R 重開不會重啟伺服器（現場的手機還連著它）。
+        /// </summary>
         private void StartRelay()
         {
             NetworkConfig network = _config.Network;
@@ -182,28 +202,144 @@ namespace HorseRace.View
                 return;
             }
 
+            string relayUrl = network.RelayUrl;
+
+            if (LocalRelayOptions.ShouldLaunch(network))
+            {
+                LocalRelayOptions options = LocalRelayOptions.Create(
+                    network, Application.dataPath, Application.persistentDataPath);
+
+                _localRelay = new LocalRelayLauncher(options);
+                _localRelay.Start();
+                relayUrl = LocalRelayLauncher.WithHostKey(relayUrl, _localRelay.HostKey);
+
+                Debug.Log("[RaceDirector] 自動啟動本機中繼伺服器：" + options.ServerDirectory
+                          + (options.UseTunnel ? "（含外網通道）" : ""));
+            }
+
             _relay = new RelayClient();
-            _relay.Start(network.RelayUrl, network.ReconnectSeconds);
+            _relay.Start(relayUrl, network.ReconnectSeconds);
+
+            // 刻意印原始位址：帶金鑰的版本不該出現在 log 裡
             Debug.Log("[RaceDirector] 連往中繼伺服器：" + network.RelayUrl);
         }
 
-        /// <summary>算出手機要開的網址並產生 QRCode 顯示在大螢幕上。</summary>
-        private void PublishJoinInfo(NetworkConfig network)
+        /// <summary>把啟動器的 log 轉到 Unity，並在通道狀態變化時更新 QRCode。</summary>
+        private void PumpLocalRelay()
         {
-            string joinUrl = string.IsNullOrEmpty(network.JoinUrl)
-                ? LocalAddress.DeriveJoinUrl(network.RelayUrl)
-                : network.JoinUrl;
-
-            if (string.IsNullOrEmpty(joinUrl))
+            if (_localRelay == null)
             {
-                Debug.LogWarning("[RaceDirector] 無法推導手機入場網址，"
-                                 + "請在設定檔的 Network.JoinUrl 直接填入。");
-                _hud.SetJoinInfo(null, null);
                 return;
             }
 
-            Debug.Log("[RaceDirector] 手機入場網址：" + joinUrl);
-            _hud.SetJoinInfo(QrCodeBuilder.Create(joinUrl, QrCodeSize), joinUrl);
+            LauncherLogLine line;
+            while (_localRelay.TryDequeueLog(out line))
+            {
+                if (line.IsWarning)
+                {
+                    Debug.LogWarning(line.Text);
+                }
+                else
+                {
+                    Debug.Log(line.Text);
+                }
+            }
+
+            // 狀態沒變就不重算網址：這裡每幀都會跑，省掉每幀的字串與 Uri 配置
+            LocalRelayStatus status = _localRelay.Status;
+            if (status.Tunnel == _seenRelayStatus.Tunnel
+                && status.PublicUrl == _seenRelayStatus.PublicUrl
+                && status.TunnelDetail == _seenRelayStatus.TunnelDetail)
+            {
+                return;
+            }
+
+            _seenRelayStatus = status;
+            RefreshJoinInfo(false);
+        }
+
+        /// <summary>
+        /// 算出手機要開的網址並更新大螢幕上的 QRCode。內容沒變就什麼都不做，
+        /// 所以可以每幀呼叫；<paramref name="force"/> 用在介面剛重建時。
+        /// </summary>
+        private void RefreshJoinInfo(bool force)
+        {
+            string caption;
+            string joinUrl = ResolveJoinUrl(_config.Network, out caption);
+
+            if (!force && joinUrl == _shownJoinUrl && caption == _shownJoinCaption)
+            {
+                return;
+            }
+
+            bool urlChanged = joinUrl != _shownJoinUrl;
+            _shownJoinUrl = joinUrl;
+            _shownJoinCaption = caption;
+
+            Texture2D qrCode = string.IsNullOrEmpty(joinUrl) ? null : QrCodeBuilder.Create(joinUrl, QrCodeSize);
+            _hud.SetJoinInfo(qrCode, caption);
+
+            if (urlChanged && !string.IsNullOrEmpty(joinUrl))
+            {
+                Debug.Log("[RaceDirector] 手機入場網址：" + joinUrl);
+            }
+        }
+
+        /// <summary>
+        /// 決定 QRCode 放哪個網址。優先序：設定檔指定 → 外網通道 → 區網。
+        /// 回傳 null 代表目前不該顯示 QRCode（通道還在準備），<paramref name="caption"/> 說明原因。
+        /// </summary>
+        private string ResolveJoinUrl(NetworkConfig network, out string caption)
+        {
+            if (!string.IsNullOrEmpty(network.JoinUrl))
+            {
+                caption = DisplayUrl(network.JoinUrl);
+                return network.JoinUrl;
+            }
+
+            bool tunnelUnavailable = false;
+            if (_localRelay != null)
+            {
+                LocalRelayStatus status = _localRelay.Status;
+                switch (status.Tunnel)
+                {
+                    case TunnelState.Ready:
+                        caption = DisplayUrl(status.PublicUrl);
+                        return status.PublicUrl;
+
+                    case TunnelState.Starting:
+                        caption = status.TunnelDetail;
+                        return null;
+
+                    case TunnelState.Unavailable:
+                        tunnelUnavailable = true;
+                        break;
+                }
+            }
+
+            string lanUrl = LocalAddress.DeriveJoinUrl(network.RelayUrl);
+            if (string.IsNullOrEmpty(lanUrl))
+            {
+                caption = null;
+                return null;
+            }
+
+            // 退回區網時要讓現場看得出來：這個網址只有連同一個 Wi-Fi 的手機打得開
+            caption = (tunnelUnavailable ? "限同 Wi-Fi：" : "") + DisplayUrl(lanUrl);
+            return lanUrl;
+        }
+
+        /// <summary>大螢幕上顯示的網址拿掉 http(s):// 與結尾斜線，省空間也比較好念。</summary>
+        private static string DisplayUrl(string url)
+        {
+            string trimmed = url;
+            int schemeEnd = trimmed.IndexOf("://", StringComparison.Ordinal);
+            if (schemeEnd >= 0)
+            {
+                trimmed = trimmed.Substring(schemeEnd + 3);
+            }
+
+            return trimmed.TrimEnd('/');
         }
 
         /// <summary>QRCode 的像素尺寸。用點取樣放大顯示，所以不需要做到面板那麼大。</summary>
@@ -637,12 +773,33 @@ namespace HorseRace.View
             bool showNameTags = _loop.Phase != RacePhase.Photo && _loop.Phase != RacePhase.Settle;
             _hud.UpdateNameTags(_horseViews, _camera, showNameTags);
 
-            _hud.SetConnectionStatus(
-                _relay != null && _relay.IsConnected,
-                _relay == null ? "單機模式" : _relay.StatusText);
+            _hud.SetConnectionStatus(_relay != null && _relay.IsConnected, DescribeConnectionProblem());
 
             _hud.SetPlayerCount(_loop.Book.PlayerCount);
             _hud.ShowLeaderboard(_loop.Book.TopPlayers(LeaderboardSize));
+        }
+
+        /// <summary>
+        /// 沒連上時要顯示的原因。本機伺服器根本沒起來（例如沒裝 Node.js）時，
+        /// 顯示那個根本原因，而不是一句看不出所以然的「連線失敗」。
+        /// </summary>
+        private string DescribeConnectionProblem()
+        {
+            if (_relay == null)
+            {
+                return "單機模式";
+            }
+
+            if (_localRelay != null)
+            {
+                string serverProblem = _localRelay.Status.ServerProblem;
+                if (!string.IsNullOrEmpty(serverProblem))
+                {
+                    return serverProblem;
+                }
+            }
+
+            return _relay.StatusText;
         }
 
         private void ResetHorsesToGate()

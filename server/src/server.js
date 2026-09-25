@@ -13,6 +13,7 @@
  * 目前是原型階段，只支援單一房間。房號路由留到 M3 正式版再加。
  */
 
+const crypto = require('crypto');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -20,6 +21,18 @@ const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 8080;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+
+/**
+ * 大螢幕金鑰。有設定時，role=host 的連線必須帶上相同的 key 才會被接受。
+ * 開了對外通道或部署到雲端之後，任何人都連得到這台伺服器；
+ * 沒有這道檢查，有人把自己標成 host 就能冒充大螢幕對全場手機亂發訊息。
+ * 由 Unity 自動啟動時會透過環境變數帶入；手動 npm start 不設定則不檢查（開發用）。
+ */
+const HOST_KEY = process.env.HOST_KEY || '';
+
+/** 關閉代碼，與 Assets/Scripts/Net/RelayClient.cs 的定義一致。 */
+const CLOSE_REPLACED_BY_NEW_HOST = 4000;
+const CLOSE_INVALID_HOST_KEY = 4001;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -103,6 +116,13 @@ function sendToPlayer(playerId, payload) {
   }
 }
 
+function isAuthorizedHost(url) {
+  if (!HOST_KEY) return true;
+  const given = Buffer.from(url.searchParams.get('key') || '');
+  const expected = Buffer.from(HOST_KEY);
+  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+}
+
 function describe(socket) {
   return socket === host ? 'host' : 'player';
 }
@@ -111,10 +131,16 @@ wss.on('connection', (socket, request) => {
   const url = new URL(request.url, 'http://localhost');
   const role = url.searchParams.get('role') === 'host' ? 'host' : 'player';
 
+  if (role === 'host' && !isAuthorizedHost(url)) {
+    console.warn('[relay] 拒絕金鑰不符的大螢幕連線');
+    try { socket.close(CLOSE_INVALID_HOST_KEY, 'invalid host key'); } catch (_) { /* 忽略 */ }
+    return;
+  }
+
   if (role === 'host') {
     if (host && host !== socket) {
       console.log('[relay] 新的大螢幕接手，關閉舊連線');
-      try { host.close(4000, 'replaced by a new host'); } catch (_) { /* 忽略 */ }
+      try { host.close(CLOSE_REPLACED_BY_NEW_HOST, 'replaced by a new host'); } catch (_) { /* 忽略 */ }
     }
     host = socket;
     console.log('[relay] 大螢幕已連線');
@@ -185,6 +211,8 @@ server.listen(PORT, () => {
   console.log(`[relay] 已啟動 http://localhost:${PORT}`);
   console.log('[relay] 大螢幕連線位址  ws://localhost:' + PORT + '/ws?role=host');
   console.log('[relay] 手機開啟網頁     http://localhost:' + PORT + '/');
+  console.log('[relay] 大螢幕金鑰檢查   ' + (HOST_KEY ? '啟用' : '未啟用（未設定 HOST_KEY）'));
+  if (HOST_KEY) return; // 由 Unity 自動啟動，外網通道也由它負責，下面的手動說明用不到
   console.log('');
   console.log('提醒：手機的動作感測器需要 HTTPS 才能使用。');
   console.log('用區網 IP 直接開會拿不到權限，請改用 cloudflared 之類的通道取得 https 網址：');

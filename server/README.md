@@ -6,7 +6,11 @@
 
 ## 啟動
 
-需要 Node.js 18 以上。
+**平常不需要手動啟動**：`race.json` 的 `Network.RelayUrl` 指向 `localhost`（預設）時，
+Unity 大螢幕一開就會自己把這個伺服器與 Cloudflare 外網通道開起來，結束時一併關閉。
+細節見 `docs/ARCHITECTURE.md` 第 6.1 節。
+
+以下是手動啟動的方式（除錯、或不想讓大螢幕代管時用）。需要 Node.js 18 以上。
 
 ```bash
 cd server
@@ -18,6 +22,16 @@ npm start
 
 - 手機網頁：`http://localhost:8080/`
 - 大螢幕連線位址：`ws://localhost:8080/ws?role=host`（已是 `race.json` 的預設值）
+
+## 大螢幕金鑰（HOST_KEY）
+
+設定環境變數 `HOST_KEY` 後，`role=host` 的連線必須帶上 `&key=<同一把金鑰>`，否則以關閉代碼 4001 拒絕。
+伺服器一旦對外開放（外網通道或雲端部署），任何人都連得到，這道檢查防止有人冒充大螢幕。
+
+- Unity 自動啟動時會自己產生並帶入金鑰，不必手動設定
+- 手動 `npm start` 不設定 `HOST_KEY` 就不檢查（開發用）
+- 部署到雲端時：在平台上設定 `HOST_KEY` 環境變數，並把 `race.json` 的 `RelayUrl` 寫成
+  `wss://你的網域/ws?role=host&key=同一把金鑰`
 
 ## 手機要用 HTTPS 才有動作感測器
 
@@ -31,6 +45,7 @@ cloudflared tunnel --url http://localhost:8080
 ```
 
 它會印出一個 `https://xxxx.trycloudflare.com` 網址，手機開那個就有動作感測器。
+（由 Unity 自動啟動時這一步也是自動的，網址會直接出現在大螢幕的 QRCode 上。）
 
 **沒有 HTTPS 也不會卡住**：手機頁上的「連打」按鈕與搖動走同一個計數器，
 權限拿不到時照樣可以測完整流程。
@@ -47,8 +62,8 @@ cloudflared tunnel --url http://localhost:8080
 伺服器會讀 `PORT` 環境變數。
 
 **不能用 Firebase Hosting 或 Vercel Serverless**——它們不支援 WebSocket 長連線。
-建議 Zeabur 或 Railway。免費層閒置會休眠，活動當天請提前十分鐘喚醒，
-或升到不休眠的付費檔。
+Render 免費層與 Zeabur 免費方案都支援，但閒置會休眠（Render 約 15 分鐘，喚醒約 1 分鐘）；
+Railway 已沒有長期免費方案。活動當天請提前十分鐘喚醒，或升到不休眠的付費檔。
 
 部署後把 `Assets/StreamingAssets/config/race.json` 的 `Network.RelayUrl`
 改成 `wss://你的網域/ws?role=host` 即可，不必重新建置 Unity。

@@ -115,6 +115,7 @@ namespace HorseRace.Net
             while (!token.IsCancellationRequested)
             {
                 ClientWebSocket socket = null;
+                string disconnectReason = null;
 
                 try
                 {
@@ -131,6 +132,7 @@ namespace HorseRace.Net
 
                     // 任一邊結束就代表這條連線走完了，回到外層重連
                     await Task.WhenAny(receiving, sending).ConfigureAwait(false);
+                    disconnectReason = DescribeClose(socket);
                 }
                 catch (OperationCanceledException)
                 {
@@ -154,7 +156,7 @@ namespace HorseRace.Net
                     break;
                 }
 
-                _statusText = "已斷線，重連中…";
+                _statusText = disconnectReason ?? "已斷線，重連中…";
                 DrainOutbound();
 
                 try
@@ -214,6 +216,31 @@ namespace HorseRace.Net
                     .ConfigureAwait(false);
             }
         }
+
+        /// <summary>
+        /// 伺服器主動關閉時，把看得懂的原因翻成狀態文字；一般斷線回傳 null。
+        /// 代碼與 server/src/server.js 的定義一致。
+        /// </summary>
+        private static string DescribeClose(ClientWebSocket socket)
+        {
+            if (!socket.CloseStatus.HasValue)
+            {
+                return null;
+            }
+
+            switch ((int)socket.CloseStatus.Value)
+            {
+                case CloseCodeInvalidHostKey:
+                    return "大螢幕金鑰不符，被伺服器拒絕";
+                case CloseCodeReplacedByNewHost:
+                    return "已被另一個大螢幕取代";
+                default:
+                    return null;
+            }
+        }
+
+        private const int CloseCodeReplacedByNewHost = 4000;
+        private const int CloseCodeInvalidHostKey = 4001;
 
         /// <summary>斷線時把待送訊息清掉。這些都是即時狀態，補送過期資料只會造成畫面倒退。</summary>
         private void DrainOutbound()
