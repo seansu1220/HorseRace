@@ -73,7 +73,7 @@ for (const id of [
   'tapPad', 'motionButton', 'motionNote',
   'pickScreen', 'pickHorses',
   'resultScreen', 'resultTitle', 'resultDelta', 'resultOrder', 'leaderList',
-  'idleScreen', 'idleLeader',
+  'idleScreen', 'idleTitle', 'idleHint', 'idleLeader',
 ]) {
   dom[id] = document.getElementById(id);
 }
@@ -225,6 +225,7 @@ function biggestBetLane() {
 // ---------------------------------------------------------------- 畫面
 
 const PHASE_TITLES = {
+  lobby: '等待開賽',
   idle: '準備下一場',
   betting: '下注中',
   racing: '比賽進行中',
@@ -287,8 +288,20 @@ function render() {
 
     default:
       showScreen('idle');
+      renderIdleText();
       renderLeaderList(dom.idleLeader);
       break;
+  }
+}
+
+/** 開賽前（lobby）與場次之間（idle）共用同一個畫面，只換說明文字。 */
+function renderIdleText() {
+  if (state.phase === 'lobby') {
+    dom.idleTitle.textContent = '等待主持人開始';
+    dom.idleHint.textContent = '人到齊後主持人會開始第一場，這裡會自動切到下注畫面。';
+  } else {
+    dom.idleTitle.textContent = '等待下一場';
+    dom.idleHint.textContent = '下注即將開始，準備好你的籌碼。';
   }
 }
 

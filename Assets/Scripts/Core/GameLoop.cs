@@ -19,7 +19,13 @@ namespace HorseRace.Core
         Photo = 3,
 
         /// <summary>派彩結算。</summary>
-        Settle = 4
+        Settle = 4,
+
+        /// <summary>
+        /// 開賽前等待入場。不倒數，大螢幕放大顯示 QRCode，主持人按鍵才進入第一場的 Idle。
+        /// 編號接在最後，既有階段的數值不變。
+        /// </summary>
+        Lobby = 5
     }
 
     /// <summary>
@@ -47,13 +53,13 @@ namespace HorseRace.Core
             RaceNumber = 1;
 
             PrepareLineup();
-            EnterPhase(RacePhase.Idle);
+            EnterPhase(config.Race.WaitForHostToStart ? RacePhase.Lobby : RacePhase.Idle);
         }
 
         /// <summary>目前階段。</summary>
         public RacePhase Phase { get; private set; }
 
-        /// <summary>本階段剩餘秒數。Racing 階段沒有倒數，這裡固定為 0。</summary>
+        /// <summary>本階段剩餘秒數。Racing 與 Lobby 沒有倒數，這裡固定為 0。</summary>
         public double PhaseRemainingSeconds
         {
             get { return _phaseRemaining < 0.0 ? 0.0 : _phaseRemaining; }
@@ -114,8 +120,9 @@ namespace HorseRace.Core
         /// <summary>推進時間。外部每幀呼叫一次，傳入這一幀經過的秒數。</summary>
         public void Tick(double deltaSeconds)
         {
-            if (deltaSeconds <= 0.0)
+            if (deltaSeconds <= 0.0 || Phase == RacePhase.Lobby)
             {
+                // 等待入場時時間不流動：人還沒到齊，倒數不能偷偷開始
                 return;
             }
 
@@ -151,6 +158,21 @@ namespace HorseRace.Core
             Odds = odds;
         }
 
+        /// <summary>
+        /// 主持人宣布開始：從等待入場進入第一場。不在等待入場時呼叫不會有任何效果。
+        /// </summary>
+        /// <returns>是否真的開始了。</returns>
+        public bool StartFromLobby()
+        {
+            if (Phase != RacePhase.Lobby)
+            {
+                return false;
+            }
+
+            EnterPhase(RacePhase.Idle);
+            return true;
+        }
+
         /// <summary>除錯用：立刻結束目前階段。Racing 階段則直接把比賽跑完。</summary>
         public void SkipPhase()
         {
@@ -172,6 +194,10 @@ namespace HorseRace.Core
         {
             switch (Phase)
             {
+                case RacePhase.Lobby:
+                    EnterPhase(RacePhase.Idle);
+                    break;
+
                 case RacePhase.Idle:
                     EnterPhase(RacePhase.Betting);
                     break;
@@ -233,7 +259,7 @@ namespace HorseRace.Core
                 case RacePhase.Settle:
                     return _config.Race.SettleSeconds;
                 default:
-                    return 0.0; // Racing 由比賽本身決定長度
+                    return 0.0; // Racing 由比賽本身決定長度；Lobby 等主持人
             }
         }
 

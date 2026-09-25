@@ -53,6 +53,8 @@ namespace HorseRace.View
         private Text[] _leaderRows;
         private Text _leaderEmptyLabel;
 
+        private LobbyScreen _lobby;
+
         /// <summary>排行榜顯示幾名。太多會佔掉賽道畫面，五名剛好。</summary>
         private const int LeaderRowCount = 5;
 
@@ -74,6 +76,21 @@ namespace HorseRace.View
             BuildJoinPanel();
             BuildHint();
             BuildResultPanel(laneCount);
+
+            // 等待入場是全螢幕畫面，必須最後建立才會蓋在所有東西上面
+            _lobby = LobbyScreen.Build(_canvas.transform);
+        }
+
+        /// <summary>顯示或隱藏開賽前的「掃碼入場」全螢幕畫面。</summary>
+        public void ShowLobby(bool visible)
+        {
+            _lobby.SetVisible(visible);
+        }
+
+        /// <summary>更新等待入場畫面的人數與名字牆。</summary>
+        public void ShowLobbyPlayers(int count, IReadOnlyList<PlayerAccount> players)
+        {
+            _lobby.SetPlayers(count, players);
         }
 
         /// <summary>換場時更新名單。顏色與名字只有這時候會變。</summary>
@@ -109,7 +126,7 @@ namespace HorseRace.View
             _phaseLabel.text = PhaseTitle(phase);
             _phaseLabel.color = PhaseColor(phase);
 
-            if (phase == RacePhase.Racing)
+            if (phase == RacePhase.Racing || phase == RacePhase.Lobby)
             {
                 _countdownLabel.text = "";
             }
@@ -175,6 +192,7 @@ namespace HorseRace.View
             _connectionLabel.color = connected
                 ? new Color(0.42f, 0.85f, 0.52f)
                 : new Color(1f, 0.45f, 0.40f);
+            _lobby.SetConnection(connected, detail);
         }
 
         /// <summary>揭曉名次。</summary>
@@ -443,6 +461,9 @@ namespace HorseRace.View
             }
 
             _joinUrlLabel.text = string.IsNullOrEmpty(caption) ? "（無法取得網址）" : caption;
+
+            // 等待入場畫面共用同一張貼圖（不另外持有，釋放一律由這裡負責）
+            _lobby.SetJoinInfo(qrCode, caption);
         }
 
         private void OnDestroy()
@@ -521,6 +542,8 @@ namespace HorseRace.View
         {
             switch (phase)
             {
+                case RacePhase.Lobby:
+                    return "等待開賽";
                 case RacePhase.Idle:
                     return "準備下一場";
                 case RacePhase.Betting:

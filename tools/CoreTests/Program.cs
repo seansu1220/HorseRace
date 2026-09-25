@@ -36,6 +36,7 @@ namespace HorseRace.Tests
             BettingTests();
             ConfigTests();
             GameLoopTests();
+            LobbyTests();
 
             Console.WriteLine();
             if (Failures.Count == 0)
@@ -650,6 +651,7 @@ namespace HorseRace.Tests
 
             // --- 流程層的階段檢查 ---
             GameConfig loopConfig = DefaultConfig();
+            loopConfig.Race.WaitForHostToStart = false; // 這裡只測下注的階段檢查，跳過開賽前的等待入場
             loopConfig.Race.IdleSeconds = 1.0;
             loopConfig.Race.BettingSeconds = 2.0;
             GameLoop loop = new GameLoop(loopConfig, 7);
@@ -799,6 +801,7 @@ namespace HorseRace.Tests
             Section("GameLoop");
 
             GameConfig config = DefaultConfig();
+            config.Race.WaitForHostToStart = false; // 等待入場另有專門測試（LobbyTests）
             config.Race.IdleSeconds = 1.0;
             config.Race.BettingSeconds = 2.0;
             config.Race.PhotoSeconds = 1.0;
@@ -854,6 +857,78 @@ namespace HorseRace.Tests
             Check("同 seed 的 GameLoop 產生相同名單與賽事種子",
                 Math.Abs(deterministicA.Lineup[0].BaseSpeed - deterministicB.Lineup[0].BaseSpeed) < 1e-12
                 && deterministicA.RaceSeed == deterministicB.RaceSeed);
+        }
+
+        // ---------------------------------------------------------------- 開賽前等待入場
+
+        private static void LobbyTests()
+        {
+            Section("Lobby（等待入場）");
+
+            GameConfig config = DefaultConfig();
+            Check("預設設定會先等主持人開始", config.Race.WaitForHostToStart);
+
+            List<RacePhase> visited = new List<RacePhase>();
+            GameLoop loop = new GameLoop(config, 31);
+            loop.PhaseEntered += visited.Add;
+
+            Check("起始階段為 Lobby", loop.Phase == RacePhase.Lobby);
+            Check("Lobby 沒有倒數", loop.PhaseRemainingSeconds == 0.0);
+            Check("Lobby 時名單已備妥（可以先算賠率）", loop.Lineup != null && loop.Lineup.Length == 4);
+
+            loop.Tick(600.0);
+            Check("時間再久也停在 Lobby，不會偷偷開始", loop.Phase == RacePhase.Lobby && visited.Count == 0);
+
+            loop.Book.Join("p1", "阿明");
+            Check("Lobby 期間可以入場", loop.Book.PlayerCount == 1);
+            Check("Lobby 期間不能下注",
+                loop.TryPlaceBet("p1", 0, 100) == BetRejection.NotBettingPhase);
+
+            Check("主持人開始後回傳 true", loop.StartFromLobby());
+            Check("開始後進入第一場的 Idle",
+                loop.Phase == RacePhase.Idle && loop.RaceNumber == 1
+                && visited.Count == 1 && visited[0] == RacePhase.Idle);
+            Check("Idle 恢復正常倒數", loop.PhaseRemainingSeconds > 0.0);
+            Check("已經開始後再按一次不會有效果", !loop.StartFromLobby() && loop.Phase == RacePhase.Idle);
+
+            GameLoop skipper = new GameLoop(config, 32);
+            skipper.SkipPhase();
+            Check("除錯跳階段在 Lobby 等同開始", skipper.Phase == RacePhase.Idle);
+
+            // 跑完一整場之後不會再回到 Lobby
+            config.Race.IdleSeconds = 0.5;
+            config.Race.BettingSeconds = 0.5;
+            config.Race.PhotoSeconds = 0.5;
+            config.Race.SettleSeconds = 0.5;
+            GameLoop full = new GameLoop(config, 33);
+            full.StartFromLobby();
+            double elapsed = 0.0;
+            while (full.RaceNumber == 1 && elapsed < 300.0)
+            {
+                full.Tick(0.05);
+                elapsed += 0.05;
+            }
+
+            Check("第一場結束後直接進第二場的 Idle，不回 Lobby",
+                full.RaceNumber == 2 && full.Phase == RacePhase.Idle);
+
+            GameConfig unattended = DefaultConfig();
+            unattended.Race.WaitForHostToStart = false;
+            Check("關閉等待時直接從 Idle 開始", new GameLoop(unattended, 34).Phase == RacePhase.Idle);
+
+            PresentationConfig presentation = new PresentationConfig
+            {
+                IntroVideo = null,
+                PlaceholderSeconds = -5.0
+            };
+            presentation.Validate();
+            Check("開場設定：null 影片路徑修正為空字串", presentation.IntroVideo == "");
+            Check("開場設定：預設畫面長度夾到下限", presentation.PlaceholderSeconds >= 1.0);
+
+            GameConfig missingSection = new GameConfig { Presentation = null };
+            missingSection.Validate();
+            Check("設定檔缺少開場區段時補上預設值",
+                missingSection.Presentation != null && missingSection.Presentation.PlayIntro);
         }
 
         // ---------------------------------------------------------------- 工具

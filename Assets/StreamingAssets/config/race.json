@@ -17,6 +17,7 @@
     "StepsPerSecondForFullDrive": 6.0,
     "DriveDecaySeconds": 1.0,
 
+    "WaitForHostToStart": true,
     "IdleSeconds": 6.0,
     "BettingSeconds": 30.0,
     "PhotoSeconds": 4.0,
@@ -54,6 +55,13 @@
     "NodeCommand": "node",
     "CloudflaredPath": "",
     "TunnelTimeoutSeconds": 45.0
+  },
+
+  "Presentation": {
+    "PlayIntro": true,
+    "IntroVideo": "intro/intro.mp4",
+    "PlaceholderSeconds": 6.0,
+    "IntroSkippable": true
   },
 
   "Roster": [

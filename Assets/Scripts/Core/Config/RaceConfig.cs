@@ -77,6 +77,12 @@ namespace HorseRace.Core
 
         // ---- 階段秒數 ----
 
+        /// <summary>
+        /// 開場後先停在「等待入場」，由主持人按鍵才開始第一場。
+        /// 關掉則一開程式就直接開始倒數（適合無人值守的展示場合）。
+        /// </summary>
+        public bool WaitForHostToStart = true;
+
         /// <summary>待機展示。賠率的蒙地卡羅模擬就在這段時間於背景算完。</summary>
         public double IdleSeconds = 6.0;
 

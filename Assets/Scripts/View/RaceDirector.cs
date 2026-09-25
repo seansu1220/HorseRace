@@ -42,6 +42,7 @@ namespace HorseRace.View
 
         private RelayClient _relay;
         private LocalRelayLauncher _localRelay;
+        private IntroPlayer _intro;
         private DriveMessage _driveMessage;
         private float _nextDrivePushTime;
 
@@ -60,6 +61,20 @@ namespace HorseRace.View
             // 先開連線（含本機伺服器與外網通道），場景建好時 QRCode 才知道要放哪個網址
             StartRelay();
             StartNewSession();
+
+            // 開場蓋在最上層播放；底下的伺服器與外網通道同時在準備，播完時 QRCode 通常已就緒
+            StartIntro();
+        }
+
+        private void StartIntro()
+        {
+            if (!_config.Presentation.PlayIntro)
+            {
+                return;
+            }
+
+            _intro = IntroPlayer.Create(transform, _config);
+            _intro.Finished += () => _intro = null;
         }
 
         private void Update()
@@ -135,8 +150,11 @@ namespace HorseRace.View
             // 現場出問題時，第一件事就是確認程式以為自己在哪個階段，所以這行留在正式版
             Debug.Log("[RaceDirector] 第 " + _loop.RaceNumber + " 場進入 " + phase + " 階段。");
 
+            _hud.ShowLobby(phase == RacePhase.Lobby);
+
             switch (phase)
             {
+                case RacePhase.Lobby:
                 case RacePhase.Idle:
                     _hud.SetLineup(_loop.Lineup);
                     _hud.HideResult();
@@ -532,9 +550,10 @@ namespace HorseRace.View
                 };
             }
 
-            // 傳結束時間戳而非剩餘秒數，讓手機自行遞減，避免網路抖動造成秒數跳動
+            // 傳結束時間戳而非剩餘秒數，讓手機自行遞減，避免網路抖動造成秒數跳動。
+            // 比賽中與等待開賽沒有倒數，傳 0 讓手機不顯示秒數
             long endsAt = 0;
-            if (_loop.Phase != RacePhase.Racing)
+            if (_loop.Phase != RacePhase.Racing && _loop.Phase != RacePhase.Lobby)
             {
                 endsAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                          + (long)(_loop.PhaseRemainingSeconds * 1000.0);
@@ -776,6 +795,11 @@ namespace HorseRace.View
             _hud.SetConnectionStatus(_relay != null && _relay.IsConnected, DescribeConnectionProblem());
 
             _hud.SetPlayerCount(_loop.Book.PlayerCount);
+            if (_loop.Phase == RacePhase.Lobby)
+            {
+                _hud.ShowLobbyPlayers(_loop.Book.PlayerCount, _loop.Book.Players);
+            }
+
             _hud.ShowLeaderboard(_loop.Book.TopPlayers(LeaderboardSize));
         }
 
@@ -896,6 +920,29 @@ namespace HorseRace.View
 
         private void HandleDebugInput()
         {
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                Application.Quit();
+            }
+
+            // 開場播放中，空白鍵與 Enter 是「略過開場」，不能同時被當成開始比賽
+            if (_intro != null)
+            {
+                return;
+            }
+
+            if (_loop.Phase == RacePhase.Lobby)
+            {
+                if (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return)
+                    || Input.GetKeyDown(KeyCode.KeypadEnter))
+                {
+                    Debug.Log("[RaceDirector] 主持人開始第一場，目前 " + _loop.Book.PlayerCount + " 人入場。");
+                    _loop.StartFromLobby();
+                }
+
+                return;
+            }
+
             if (Input.GetKeyDown(KeyCode.Space))
             {
                 _loop.SkipPhase();
@@ -915,11 +962,6 @@ namespace HorseRace.View
             if (Input.GetKeyDown(KeyCode.Alpha2))
             {
                 ApplyDebugEffect(EffectKind.Slow);
-            }
-
-            if (Input.GetKeyDown(KeyCode.Escape))
-            {
-                Application.Quit();
             }
         }
 

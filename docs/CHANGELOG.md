@@ -1,5 +1,68 @@
 # 變更紀錄
 
+## 2026-09-25 — 開場動畫與開賽前「等待入場」
+
+### 問題描述
+
+程式一開就直接進入第一場的倒數，但外網通道要十幾秒才就緒：QRCode 還是空白，倒數已經在跑，
+觀眾根本來不及入場。使用者也希望之後能在最前面放一段開場動畫。
+
+### 根本原因
+
+流程設計上沒有「開賽前」這個狀態——`GameLoop` 建構時就進入 Idle 並開始計時。
+
+### 設計決策
+
+- **在 Core 新增 `Lobby` 階段而不是只在畫面上擋著。** 「什麼時候開始倒數」是流程規則，必須在
+  `GameLoop` 裡、可以測試；手機也要知道現在是開賽前（顯示「等待主持人開始」而不是倒數 0）。
+  Lobby 期間時間不流動，只能由 `StartFromLobby()`（主持人按鍵）離開；第一場之後不會再回到 Lobby。
+- **主持人按鍵開始**（使用者選定）：現場人什麼時候到齊只有主持人知道。
+- **開場只是蓋在最上層的畫布**：伺服器與外網通道照常在背景準備，開場播完時 QRCode 通常已就緒；
+  就算還沒好，底下的等待畫面也不倒數，不會吃掉任何時間。
+- **換開場影片只要放檔案**：`StreamingAssets/intro/intro.mp4`（路徑可在設定檔改）。
+  沒有影片或播放失敗時自動改播程式產生的預設開場，不會卡住。
+
+### 修改的檔案與內容
+
+**Core**
+- `GameLoop.cs`：新增 `RacePhase.Lobby`（編號接在最後，既有數值不變）、`StartFromLobby()`；
+  Lobby 期間 `Tick` 不推進時間；`SkipPhase` 在 Lobby 等同開始
+- `Config/RaceConfig.cs`：新增 `WaitForHostToStart`（預設開；關掉則開程式直接倒數，適合無人值守展示）
+- `Config/PresentationConfig.cs`（新增）：`PlayIntro`、`IntroVideo`、`PlaceholderSeconds`、`IntroSkippable`
+- `Config/GameConfig.cs`：掛上 `Presentation` 區段，缺少時補預設值
+- `Protocol/Messages.cs`：註明 `phase` 可能的值（新增 `lobby`）；Lobby 的 `endsAt` 為 0
+
+**View**
+- `IntroPlayer.cs`（新增）：VideoPlayer 播放影片（依影片比例留黑邊、聲音直接輸出），
+  準備逾時 8 秒或播放錯誤就改播預設開場（馬匹顏色的色帶奔跑＋標題淡入）；可按空白鍵／Enter／滑鼠略過；
+  結束時淡出 0.5 秒後自我銷毀
+- `LobbyScreen.cs`（新增）：全螢幕「掃碼入場」——600px 大 QRCode、網址、連線狀態、入場人數、
+  最新加入的 10 個名字、主持人提示。人數有變才重組字串
+- `RaceHud.cs`：建立並轉交資料給 LobbyScreen（共用同一張 QRCode 貼圖，釋放仍由 RaceHud 負責）；
+  Lobby 不顯示倒數
+- `RaceDirector.cs`：啟動時先開連線與場景、再疊上開場；開場播放中空白鍵只用來略過開場，
+  **不會同時被當成開始比賽**；Lobby 時空白鍵或 Enter 開始第一場；Lobby 廣播 `endsAt = 0`
+
+**手機頁**
+- `app.js`／`index.html`：認得 `lobby` 階段，顯示「等待主持人開始」
+
+**設定與文件**
+- `race.json`：新增 `Race.WaitForHostToStart` 與 `Presentation` 區段
+- `StreamingAssets/intro/README.txt`：開場影片的放置方式與格式建議
+- `docs/ARCHITECTURE.md`：時序表加上開場與 Lobby
+
+### 驗證
+
+- Core 單元測試 **140 項全綠**（新增 17 項：起始為 Lobby、Lobby 沒有倒數且時間再久也不會開始、
+  Lobby 可入場但不能下注、開始後進入第一場 Idle 並恢復倒數、重複開始無效、除錯跳階段等同開始、
+  第一場結束不回 Lobby、關閉等待時直接從 Idle 開始、開場設定的修正與預設值）
+- 用 Unity 自帶 Roslyn 編譯 Core／Net／View／Editor：零錯誤、零 C# 警告
+- 手機頁 `app.js` 語法檢查通過
+- **上一個版本（外網通道）已在使用者的 Unity 編輯器實際驗證**：Editor.log 顯示伺服器自動啟動、
+  通道 11.5 秒就緒、QRCode 換成 trycloudflare 網址、手機成功連入並跑完兩場，全程無錯誤；
+  停止播放後 node 與 cloudflared 都已收乾淨
+- 未能驗證：本次的開場與等待畫面需要在 Unity 按 Play 實際看畫面（編輯器由使用者操作）
+
 ## 2026-09-25 — 大螢幕自動啟動中繼伺服器與 Cloudflare 外網通道
 
 ### 問題描述

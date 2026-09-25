@@ -63,9 +63,13 @@ namespace HorseRace.Core.Protocol
     public sealed class PhaseMessage
     {
         public string t = MessageType.Phase;
+
+        /// <summary>
+        /// <see cref="RacePhase"/> 的小寫名稱：lobby / idle / betting / racing / photo / settle。
+        /// </summary>
         public string phase;
 
-        /// <summary>本階段結束的 Unix 毫秒時間戳。Racing 階段為 0（由比賽本身決定長度）。</summary>
+        /// <summary>本階段結束的 Unix 毫秒時間戳。Racing 與 Lobby 為 0（沒有倒數）。</summary>
         public long endsAt;
 
         public int race;

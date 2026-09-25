@@ -20,6 +20,8 @@ namespace HorseRace.Core
 
         public NetworkConfig Network = new NetworkConfig();
 
+        public PresentationConfig Presentation = new PresentationConfig();
+
         /// <summary>馬房名冊。每場從這裡取出全部馬匹出賽，並對能力值做隨機微調。</summary>
         public List<HorseConfig> Roster = new List<HorseConfig>();
 
@@ -88,6 +90,13 @@ namespace HorseRace.Core
             }
 
             Network.Validate();
+
+            if (Presentation == null)
+            {
+                Presentation = new PresentationConfig();
+            }
+
+            Presentation.Validate();
 
             if (Roster == null)
             {
