@@ -49,7 +49,7 @@ namespace HorseRace.Net
             }
             catch (Exception error)
             {
-                failure = error.GetType().Name + " - " + error.Message;
+                failure = ErrorText.Describe(error);
                 return false;
             }
         }

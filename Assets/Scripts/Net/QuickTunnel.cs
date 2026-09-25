@@ -14,7 +14,7 @@ namespace HorseRace.Net
     /// 免帳號、免費，代價是網址每次啟動都不同，所以要從 cloudflared 的輸出裡把網址抓出來。
     /// cloudflared 意外結束時會自動重開（網址會換，QRCode 由呼叫端跟著換）。
     /// </summary>
-    internal sealed class QuickTunnel
+    internal sealed class QuickTunnel : IDisposable
     {
         private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(60);
@@ -42,13 +42,33 @@ namespace HorseRace.Net
         /// 公開網址的格式。排除 api. 開頭：cloudflared 申請失敗時的錯誤訊息裡
         /// 會出現 https://api.trycloudflare.com，那不是我們的網址。
         /// </summary>
-        private static readonly Regex PublicUrlPattern = new Regex(
-            @"https://(?!api\.)[a-z0-9-]+\.trycloudflare\.com", RegexOptions.IgnoreCase);
+        private const string PublicUrlRegex = @"https://(?!api\.)[a-z0-9-]+\.trycloudflare\.com";
+
+        /// <summary>
+        /// 用到時才建立。本類別刻意不放任何「可能失敗」的靜態初始化（見 <see cref="_dnsClient"/> 的說明）；
+        /// 兩條執行緒同時建立也只是多一個相同的物件，無害。
+        /// </summary>
+        private static Regex _publicUrlPattern;
+
+        private static Regex PublicUrlPattern
+        {
+            get
+            {
+                Regex pattern = _publicUrlPattern;
+                if (pattern == null)
+                {
+                    pattern = new Regex(PublicUrlRegex, RegexOptions.IgnoreCase);
+                    _publicUrlPattern = pattern;
+                }
+
+                return pattern;
+            }
+        }
 
         private const string RegisteredMarker = "Registered tunnel connection";
         private const string ErrorMarker = " ERR ";
 
-        private static readonly HttpClient DnsClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        private static readonly TimeSpan DnsQueryTimeout = TimeSpan.FromSeconds(5);
 
         private readonly string _executablePath;
         private readonly int _localPort;
@@ -57,14 +77,27 @@ namespace HorseRace.Net
         private readonly Action<string> _warn;
         private readonly Action<TunnelState, string, string> _report;
 
+        private readonly Func<HttpClient> _dnsClientFactory;
+        private readonly object _dnsClientGate = new object();
+
+        /// <summary>
+        /// 查 DNS 用的連線，用到時才建立。刻意不做成靜態欄位：
+        /// Unity 剛進 Play 時多條背景執行緒同時初始化網路元件，建立 HttpClient 偶爾會失敗，
+        /// 靜態初始化只要失敗一次，整個類別在這次 Play 中就永久無法使用（TypeInitializationException）。
+        /// </summary>
+        private HttpClient _dnsClient;
+        private bool _dnsClientUnavailable;
+
         private volatile string _lastError;
 
         /// <param name="startChild">啟動子行程的方式，由擁有者提供，以便它在關閉時能同步收掉。</param>
         /// <param name="report">回報（狀態、公開網址、給人看的說明）。會在背景執行緒被呼叫。</param>
+        /// <param name="dnsClientFactory">建立查 DNS 用的 HttpClient；null 用預設。測試時可注入會失敗的版本。</param>
         public QuickTunnel(
             string executablePath, int localPort,
             Func<ProcessStartInfo, Action<string>, ChildProcess> startChild,
-            Action<string> log, Action<string> warn, Action<TunnelState, string, string> report)
+            Action<string> log, Action<string> warn, Action<TunnelState, string, string> report,
+            Func<HttpClient> dnsClientFactory = null)
         {
             _executablePath = executablePath;
             _localPort = localPort;
@@ -72,6 +105,52 @@ namespace HorseRace.Net
             _log = log;
             _warn = warn;
             _report = report;
+            _dnsClientFactory = dnsClientFactory ?? CreateDefaultDnsClient;
+        }
+
+        public void Dispose()
+        {
+            lock (_dnsClientGate)
+            {
+                if (_dnsClient != null)
+                {
+                    _dnsClient.Dispose();
+                    _dnsClient = null;
+                }
+            }
+        }
+
+        private static HttpClient CreateDefaultDnsClient()
+        {
+            return new HttpClient { Timeout = DnsQueryTimeout };
+        }
+
+        /// <summary>
+        /// 取得查 DNS 用的連線；建立失敗就記一次警告並回傳 null，
+        /// 之後改走「等一段時間就視為生效」的備援，通道照樣能用。
+        /// </summary>
+        private HttpClient GetDnsClient()
+        {
+            lock (_dnsClientGate)
+            {
+                if (_dnsClient != null || _dnsClientUnavailable)
+                {
+                    return _dnsClient;
+                }
+
+                try
+                {
+                    _dnsClient = _dnsClientFactory();
+                }
+                catch (Exception error)
+                {
+                    _dnsClientUnavailable = true;
+                    _warn("[QuickTunnel] 無法建立查詢 DNS 的連線，改為等待 " + (int)DnsAssumeReadyAfter.TotalSeconds
+                          + " 秒後視為生效：" + ErrorText.Describe(error));
+                }
+
+                return _dnsClient;
+            }
         }
 
         /// <summary>持續維持通道，直到 <paramref name="token"/> 被取消。</summary>
@@ -146,7 +225,7 @@ namespace HorseRace.Net
             }
             catch (Exception error)
             {
-                _lastError = error.GetType().Name + " - " + error.Message;
+                _lastError = ErrorText.Describe(error);
                 return false;
             }
 
@@ -231,26 +310,32 @@ namespace HorseRace.Net
         }
 
         /// <summary>任一個公共 DNS 查得到 A 紀錄就算生效。查詢失敗一律當作還沒生效。</summary>
-        private static async Task<bool> IsPublishedAsync(string host, CancellationToken token)
+        private async Task<bool> IsPublishedAsync(string host, CancellationToken token)
         {
+            HttpClient client = GetDnsClient();
+            if (client == null)
+            {
+                return false;
+            }
+
             Task<bool>[] queries = new Task<bool>[DnsOverHttpsEndpoints.Length];
             for (int i = 0; i < queries.Length; i++)
             {
-                queries[i] = QueryDnsOverHttpsAsync(string.Format(DnsOverHttpsEndpoints[i], host), token);
+                queries[i] = QueryDnsOverHttpsAsync(client, string.Format(DnsOverHttpsEndpoints[i], host), token);
             }
 
             bool[] answers = await Task.WhenAll(queries).ConfigureAwait(false);
             return Array.IndexOf(answers, true) >= 0;
         }
 
-        private static async Task<bool> QueryDnsOverHttpsAsync(string url, CancellationToken token)
+        private static async Task<bool> QueryDnsOverHttpsAsync(HttpClient client, string url, CancellationToken token)
         {
             try
             {
                 using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url))
                 {
                     request.Headers.TryAddWithoutValidation("Accept", "application/dns-json");
-                    using (HttpResponseMessage response = await DnsClient.SendAsync(request, token).ConfigureAwait(false))
+                    using (HttpResponseMessage response = await client.SendAsync(request, token).ConfigureAwait(false))
                     {
                         if (!response.IsSuccessStatusCode)
                         {

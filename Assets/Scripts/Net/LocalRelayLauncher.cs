@@ -68,6 +68,7 @@ namespace HorseRace.Net
         private static readonly TimeSpan NpmInstallTimeout = TimeSpan.FromMinutes(3);
         private static readonly TimeSpan ServerRestartDelay = TimeSpan.FromSeconds(3);
         private static readonly TimeSpan ExternalServerPollInterval = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan TunnelCrashRetryDelay = TimeSpan.FromSeconds(10);
 
         /// <summary>Node.js 官方安裝程式的預設位置，PATH 沒設好時的備援。</summary>
         private static readonly string DefaultNodeInstallPath = Path.Combine(
@@ -160,7 +161,7 @@ namespace HorseRace.Net
             }
             catch (Exception error)
             {
-                Warn("[LocalRelay] 取消背景工作時發生例外：" + error.Message);
+                Warn("[LocalRelay] 取消背景工作時發生例外：" + ErrorText.Describe(error));
             }
 
             // 背景工作收到取消後也會自己收，但那是非同步的；程式正要結束時等不到，這裡直接砍
@@ -218,8 +219,7 @@ namespace HorseRace.Net
             }
             catch (Exception error)
             {
-                ReportServerProblem("中繼伺服器啟動失敗",
-                    "中繼伺服器啟動失敗：" + error.GetType().Name + " - " + error.Message);
+                ReportServerProblem("中繼伺服器啟動失敗", "中繼伺服器啟動失敗：" + ErrorText.DescribeWithStack(error));
             }
         }
 
@@ -261,7 +261,7 @@ namespace HorseRace.Net
                 catch (Exception error)
                 {
                     ReportServerProblem("中繼伺服器無法啟動",
-                        "無法啟動中繼伺服器（" + node + "）：" + error.GetType().Name + " - " + error.Message);
+                        "無法啟動中繼伺服器（" + node + "）：" + ErrorText.Describe(error));
                     return;
                 }
 
@@ -386,27 +386,50 @@ namespace HorseRace.Net
 
         // ---- 外網通道 ----
 
+        /// <summary>
+        /// 維持外網通道。遇到未預期的錯誤不放棄：記下完整原因、QRCode 暫用區網，稍後整個重來。
+        /// 現場只要通道能恢復，QRCode 就會自動換回公開網址，不必重開程式。
+        /// </summary>
         private async Task RunTunnelAsync(CancellationToken token)
         {
-            try
+            while (!token.IsCancellationRequested)
             {
-                string executable = await EnsureCloudflaredAsync(token).ConfigureAwait(false);
-                if (executable == null)
+                try
+                {
+                    string executable = await EnsureCloudflaredAsync(token).ConfigureAwait(false);
+                    if (executable == null)
+                    {
+                        return; // 找不到或下載失敗，原因已經提示過
+                    }
+
+                    using (QuickTunnel tunnel = new QuickTunnel(
+                               executable, _options.Port, StartChild, Log, Warn, ReportTunnel))
+                    {
+                        await tunnel.RunAsync(token).ConfigureAwait(false);
+                    }
+
+                    return; // RunAsync 只在程式結束（取消）時返回
+                }
+                catch (OperationCanceledException)
                 {
                     return;
                 }
+                catch (Exception error)
+                {
+                    ReportTunnel(TunnelState.Unavailable, null, "外網通道發生錯誤，重試中…");
+                    Warn("[LocalRelay] 外網通道發生未預期的錯誤，QRCode 暫用區網網址，"
+                         + (int)TunnelCrashRetryDelay.TotalSeconds + " 秒後重試。原因："
+                         + ErrorText.DescribeWithStack(error));
+                }
 
-                QuickTunnel tunnel = new QuickTunnel(executable, _options.Port, StartChild, Log, Warn, ReportTunnel);
-                await tunnel.RunAsync(token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                // 程式結束
-            }
-            catch (Exception error)
-            {
-                ReportTunnel(TunnelState.Unavailable, null, "外網通道發生錯誤");
-                Warn("[LocalRelay] 外網通道發生錯誤，QRCode 改用區網網址：" + error.GetType().Name + " - " + error.Message);
+                try
+                {
+                    await Task.Delay(TunnelCrashRetryDelay, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
             }
         }
 
@@ -443,7 +466,7 @@ namespace HorseRace.Net
             catch (Exception error)
             {
                 ReportTunnel(TunnelState.Unavailable, null, "通道程式下載失敗");
-                Warn("[LocalRelay] 下載 cloudflared 失敗：" + error.GetType().Name + " - " + error.Message
+                Warn("[LocalRelay] 下載 cloudflared 失敗：" + ErrorText.Describe(error)
                      + "。QRCode 改用區網網址。也可以手動下載後，在設定檔的 Network.CloudflaredPath 指定位置。");
                 return null;
             }

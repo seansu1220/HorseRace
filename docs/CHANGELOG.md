@@ -1,5 +1,44 @@
 # 變更紀錄
 
+## 2026-09-25 — 修正：外網通道偶發初始化失敗，QRCode 整場卡在「限同 Wi-Fi」
+
+### 問題描述
+
+使用者按 Play 後，大螢幕的 QRCode 顯示「限同 Wi-Fi」的區網網址，外網通道一直沒有出來。
+同一份程式在前一次 Play 是正常的。
+
+### 根本原因
+
+Editor.log：`[LocalRelay] 外網通道發生錯誤，QRCode 改用區網網址：TypeInitializationException -
+The type initializer for 'HorseRace.Net.QuickTunnel' threw an exception.`
+
+1. `QuickTunnel` 用**靜態欄位**建立查 DNS 用的 `HttpClient`。靜態初始化在背景執行緒第一次用到類別時執行，
+   而 Unity 剛進 Play 的瞬間，同時有 WebSocket 連線、埠偵測、賠率計算等多條執行緒在初始化網路元件。
+   在這個時機建立 HttpClient 偶爾會失敗；**靜態初始化只要失敗一次，這個類別在整個 Play 期間都無法使用**。
+   用 Unity 自帶的 Mono 單獨連跑 30 次無法重現，符合「只在 Unity 剛進 Play 時偶發」的特徵。
+2. 通道任務遇到未預期的例外就**直接放棄**，所以一次偶發失敗就讓整場都卡在區網網址。
+3. log 只記了最外層例外，真正的原因（InnerException）沒有記到，無法進一步確認。
+
+### 修改的檔案與內容
+
+- `Net/QuickTunnel.cs`：拿掉靜態 HttpClient，改為**用到時才建立的執行個體欄位**，建立失敗只記一次警告、
+  改走「20 秒後視為 DNS 已生效」的備援，通道照樣能用；Regex 也改為用到時才建立。
+  現在這個類別沒有任何可能失敗的靜態初始化。建構子可注入 HttpClient 工廠（測試用）；實作 `IDisposable`
+- `Net/LocalRelayLauncher.cs`：通道遇到未預期錯誤時**不再放棄**，QRCode 暫用區網、10 秒後整個重來；
+  通道恢復後 QRCode 自動換回公開網址，不必重開程式
+- `Net/ErrorText.cs`（新增）：把例外連同所有內層例外整理成一行（未預期的錯誤另附堆疊）；
+  啟動器、通道、Job Object 的錯誤訊息全部改用它
+
+### 驗證
+
+- 啟動器獨立測試新增：
+  - 錯誤描述會列出內層例外
+  - **注入「建立 HttpClient 一定失敗」**：通道仍在約 27 秒後就緒（20 秒備援＋通道本身），
+    警告中記下了內層的真正原因，結束後無殘留 cloudflared
+- 完整外網端對端測試 42 項全綠（無退步）
+- 用 Unity 自帶 Roslyn 編譯 Core／Net／View／Editor：零錯誤、零 C# 警告
+- 若之後在 Unity 再遇到任何通道錯誤，log 會記下完整的內層原因
+
 ## 2026-09-25 — 開場動畫與開賽前「等待入場」
 
 ### 問題描述
