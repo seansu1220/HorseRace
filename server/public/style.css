@@ -16,6 +16,10 @@
 
 * { box-sizing: border-box; }
 
+/* 畫面切換靠 hidden 屬性。瀏覽器內建的 [hidden]{display:none} 優先權比任何 class 規則都低，
+   .screen { display: flex } 會把它蓋掉，結果所有畫面同時出現。這裡強制讓 hidden 永遠生效。 */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   min-height: 100%;
