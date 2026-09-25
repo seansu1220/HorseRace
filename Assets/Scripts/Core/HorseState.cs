@@ -46,6 +46,24 @@ namespace HorseRace.Core
         /// <summary>目前生效中的道具效果。</summary>
         public readonly List<SpeedEffect> Effects = new List<SpeedEffect>();
 
+        /// <summary><see cref="ObstacleAt"/> 沒有障礙物時的值。</summary>
+        public const double NoObstacle = -1.0;
+
+        /// <summary>前方障礙物的位置（公尺）；沒有障礙物時為 <see cref="NoObstacle"/>。</summary>
+        public double ObstacleAt = NoObstacle;
+
+        /// <summary>撞到這個障礙物後要停住幾秒。</summary>
+        public double ObstacleStunSeconds;
+
+        /// <summary>還要停住幾秒；0 代表正常跑動。</summary>
+        public double StunRemaining;
+
+        /// <summary>上一次停住結束的比賽時間（秒）。從未停住過為負無限大。</summary>
+        public double StunEndedAt = double.NegativeInfinity;
+
+        /// <summary>本場撞到障礙物的次數，供賽後統計。</summary>
+        public int ObstacleHits;
+
         public HorseState Clone()
         {
             HorseState copy = new HorseState
@@ -60,7 +78,12 @@ namespace HorseRace.Core
                 DriveLevel = DriveLevel,
                 Finished = Finished,
                 FinishTime = FinishTime,
-                FinishRank = FinishRank
+                FinishRank = FinishRank,
+                ObstacleAt = ObstacleAt,
+                ObstacleStunSeconds = ObstacleStunSeconds,
+                StunRemaining = StunRemaining,
+                StunEndedAt = StunEndedAt,
+                ObstacleHits = ObstacleHits
             };
 
             for (int i = 0; i < Effects.Count; i++)

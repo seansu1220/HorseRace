@@ -53,16 +53,25 @@ namespace HorseRace.View
         private bool _finishing;
         private float _fadeStartedAt;
 
+        /// <summary>QRCode 與連線是否已準備好，可以揭開等待入場畫面。</summary>
+        private Func<bool> _isReady;
+
+        /// <summary>開場內容（影片或預設畫面的基本長度）播完的時間；還沒播完為負值。</summary>
+        private float _contentEndedAt = -1f;
+        private Text _waitLabel;
+
         /// <summary>開場結束（已淡出）時觸發，之後物件會自我銷毀。</summary>
         public event Action Finished;
 
         /// <summary>建立並開始播放開場。</summary>
-        public static IntroPlayer Create(Transform parent, GameConfig config)
+        /// <param name="isReady">QRCode 與連線是否已就緒；開場播完時若還沒好，會繼續等一段時間。</param>
+        public static IntroPlayer Create(Transform parent, GameConfig config, Func<bool> isReady)
         {
             GameObject root = new GameObject("Intro");
             root.transform.SetParent(parent, false);
 
             IntroPlayer intro = root.AddComponent<IntroPlayer>();
+            intro._isReady = isReady;
             intro.Begin(config.Presentation, ReadHorseColors(config.Roster));
             return intro;
         }
@@ -112,11 +121,64 @@ namespace HorseRace.View
             if (_placeholder != null)
             {
                 AnimatePlaceholder(now);
-                if (now >= _placeholderEndsAt)
+                if (now >= _placeholderEndsAt && _contentEndedAt < 0f)
                 {
-                    Finish();
+                    _contentEndedAt = now;
                 }
             }
+
+            if (_contentEndedAt >= 0f)
+            {
+                WaitUntilReadyThenFinish(now);
+            }
+        }
+
+        /// <summary>
+        /// 開場內容播完之後：連線已就緒就結束；還沒好就顯示「連線準備中」繼續等，
+        /// 超過 <see cref="PresentationConfig.IntroMaxWaitSeconds"/> 就不等了（等待畫面自己也會顯示進度）。
+        /// </summary>
+        private void WaitUntilReadyThenFinish(float now)
+        {
+            bool ready = _isReady == null || SafeIsReady();
+            bool waitedTooLong = now - _contentEndedAt >= (float)_config.IntroMaxWaitSeconds;
+
+            if (ready || waitedTooLong)
+            {
+                Finish();
+                return;
+            }
+
+            ShowWaitLabel();
+        }
+
+        private bool SafeIsReady()
+        {
+            try
+            {
+                return _isReady();
+            }
+            catch (Exception error)
+            {
+                Debug.LogWarning("[IntroPlayer] 檢查連線狀態失敗，直接結束開場：" + error.Message);
+                return true;
+            }
+        }
+
+        private void ShowWaitLabel()
+        {
+            if (_waitLabel != null)
+            {
+                return;
+            }
+
+            _waitLabel = UiFactory.Label(_root, "Waiting", "連線準備中…", 34,
+                TextAnchor.MiddleCenter, UiFactory.TextColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)_waitLabel.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                new Vector2(0f, 90f), new Vector2(800f, 56f));
+
+            Outline outline = _waitLabel.gameObject.AddComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
+            outline.effectDistance = new Vector2(2f, -2f);
         }
 
         private void OnDestroy()
@@ -260,7 +322,12 @@ namespace HorseRace.View
 
         private void OnVideoEnded(VideoPlayer source)
         {
-            Finish();
+            // 停在最後一格；連線還沒好的話由 Update 顯示「連線準備中」繼續等
+            source.Pause();
+            if (_contentEndedAt < 0f)
+            {
+                _contentEndedAt = Time.unscaledTime;
+            }
         }
 
         private void FallBackToPlaceholder()

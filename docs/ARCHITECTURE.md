@@ -142,13 +142,18 @@ odds[i] = (1 - takeRate) / winRate[i]
 |---|---|---|---|---|
 | 加速券 Boost | 目標馬速度 ×1.35 | 2.0 s | 效果結束即可再買 | 5 籌碼 |
 | 減速券 Slow | 目標馬速度 ×0.60 | 2.0 s | 效果結束即可再買 | 5 籌碼 |
+| 障礙券 Obstacle | 目標馬前方 10 m 放柵欄，撞到後原地停住 | 2.0 s | 停住時間結束即可再買 | 10 籌碼 |
 
 附加規則（`Core/ItemShop`）：
 
 - 只在 Racing 階段可用；任何券都能用在任何馬
 - 加速券與減速券**各自冷卻**；`CooldownSeconds = 0` 代表冷卻等於效果時間（效果一結束就能再買）
 - 每場張數不限（`UsesPerRace = 0`）；設正數即為上限
-- 同一匹馬同時最多疊 2 層（`MaxStacksPerHorse`，倍率相乘），避免全場圍剿一匹
+- 同一匹馬同時最多疊 2 層加速／減速（`MaxStacksPerHorse`，倍率相乘），避免全場圍剿一匹
+- 障礙券：同一匹馬前方同時只能有一個；被絆住期間與恢復後 3 秒（`ObstacleImmunitySeconds`）不能再放，
+  否則全場輪流放障礙會讓一匹馬整場動不了；離終點太近（放下的位置在終點前 1 m 內）不能放
+- 被絆住時仍照常推進該馬的速度波動：所有馬共用一個亂數產生器，少抽一次會改變其他馬的跑法
+- 每次成功使用都記錄在 `ItemShop.Uses`，賽後彙整成「每匹馬 × 券種 × 玩家 → 張數」顯示在大螢幕與手機
 - 被拒絕（冷卻中、效果已滿、籌碼不足…）時一律不扣錢、不進冷卻
 - 冷卻用比賽的模擬時間計算，同樣的輸入序列得到同樣的結果
 
@@ -175,17 +180,20 @@ WebSocket，JSON 文字幀。所有訊息都是 `{ "t": "<type>", ... }`。
 // 階段變更（lobby / idle / betting / racing / photo / settle）。附帶規則數值供手機顯示
 { "t":"phase", "phase":"betting", "endsAt":1757145600000, "race":12, "players":18,
   "horses":[{"id":0,"name":"赤焰","color":"#E74C3C","odds":3.4}],
-  "minBet":50, "itemCost":5, "itemSeconds":2, "itemCooldown":2, "boostX":1.35, "slowX":0.6 }
+  "minBet":1, "itemCost":5, "itemSeconds":2, "itemCooldown":2, "boostX":1.35, "slowX":0.6,
+  "obstacleCost":10, "obstacleSeconds":2, "obstacleCooldown":2 }
 
-// 賽況（賽中每秒 10 次）：驅動強度、進度、效果旗標（1 = 加速中、2 = 減速中）
-{ "t":"drive", "d":[0.31,0.05,0,0.12], "p":[0.42,0.47,0.35,0.39], "fx":[0,2,0,1] }
+// 賽況（賽中每秒 10 次）：驅動強度、進度、效果旗標（1 加速中、2 減速中、4 被絆住、8 前方有障礙物）
+{ "t":"drive", "d":[0.31,0.05,0,0.12], "p":[0.42,0.47,0.35,0.39], "fx":[0,2,4,9] }
 
 // 個人錢包（帶 to，中繼站只送給該玩家）
 { "t":"wallet", "to":"p1a2b3", "nick":"阿明", "balance":850, "bets":[{"lane":0,"amount":100}],
-  "payout":0, "delta":0, "reject":"", "boostCool":1.4, "slowCool":0 }
+  "payout":0, "delta":0, "reject":"", "boostCool":1.4, "slowCool":0, "obstacleCool":0 }
 
-// 結果
-{ "t":"result", "order":[2,0,3,1], "top":[{"name":"阿明","balance":1420}] }
+// 結果：名次、完賽秒數（與 order 一一對應）、排行、每匹馬被誰用了什麼券幾張
+{ "t":"result", "order":[2,0,3,1], "times":[16.31,16.88,17.40,18.02],
+  "top":[{"name":"阿明","balance":1420}],
+  "usage":[{"lane":2,"kind":"boost","name":"阿明","count":2},{"lane":0,"kind":"obstacle","name":"小美","count":1}] }
 ```
 
 ### Players → Host
@@ -193,7 +201,7 @@ WebSocket，JSON 文字幀。所有訊息都是 `{ "t": "<type>", ... }`。
 ```jsonc
 { "t":"join", "pid":"p1a2b3", "nick":"阿明" }
 { "t":"bet",  "pid":"p1a2b3", "nick":"阿明", "lane":2, "amount":100 }
-{ "t":"item", "pid":"p1a2b3", "nick":"阿明", "kind":"boost", "lane":0 }
+{ "t":"item", "pid":"p1a2b3", "nick":"阿明", "kind":"boost", "lane":0 }   // kind：boost / slow / obstacle
 { "t":"step", "pid":"p1a2b3", "lane":0, "n":2 }
 ```
 

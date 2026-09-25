@@ -35,6 +35,43 @@ namespace HorseRace.Core
         /// <summary>同一匹馬身上最多能同時疊幾個效果，避免全場圍剿一匹。</summary>
         public int MaxStacksPerHorse = 2;
 
+        // ---- 障礙券：放在目標馬前方，撞到後原地停住一段時間 ----
+
+        /// <summary>障礙券的價格。</summary>
+        public int ObstacleCost = 10;
+
+        /// <summary>撞到障礙物後完全停住的秒數。</summary>
+        public double ObstacleStunSeconds = 2.0;
+
+        /// <summary>障礙物放在目標馬前方幾公尺。太近看不到障礙物出現，太遠要等很久才撞到。</summary>
+        public double ObstacleLeadMeters = 10.0;
+
+        /// <summary>
+        /// 馬恢復跑動後，幾秒內不能再對牠放障礙物。
+        /// 券便宜又能連買，沒有這段保護期，全場輪流放障礙會讓一匹馬整場動不了。
+        /// </summary>
+        public double ObstacleImmunitySeconds = 3.0;
+
+        /// <summary>同一名玩家兩次購買障礙券的冷卻；0 代表與停住秒數相同。</summary>
+        public double ObstacleCooldownSeconds = 0.0;
+
+        /// <summary>這種券的價格。</summary>
+        public int CostOf(ItemKind kind)
+        {
+            return kind == ItemKind.Obstacle ? ObstacleCost : Cost;
+        }
+
+        /// <summary>這種券實際生效的冷卻秒數（把「0＝與效果時間相同」展開）。</summary>
+        public double CooldownOf(ItemKind kind)
+        {
+            if (kind == ItemKind.Obstacle)
+            {
+                return ObstacleCooldownSeconds > 0.0 ? ObstacleCooldownSeconds : ObstacleStunSeconds;
+            }
+
+            return EffectiveCooldownSeconds;
+        }
+
         /// <summary>實際生效的冷卻秒數（把「0＝與效果時間相同」展開）。</summary>
         public double EffectiveCooldownSeconds
         {
@@ -62,6 +99,11 @@ namespace HorseRace.Core
             Cost = ConfigMath.Clamp(Cost, 0, 1000000);
             UsesPerRace = ConfigMath.Clamp(UsesPerRace, 0, 99);
             MaxStacksPerHorse = ConfigMath.Clamp(MaxStacksPerHorse, 1, 20);
+            ObstacleCost = ConfigMath.Clamp(ObstacleCost, 0, 1000000);
+            ObstacleStunSeconds = ConfigMath.Clamp(ObstacleStunSeconds, 0.2, 10.0);
+            ObstacleLeadMeters = ConfigMath.Clamp(ObstacleLeadMeters, 1.0, 100.0);
+            ObstacleImmunitySeconds = ConfigMath.Clamp(ObstacleImmunitySeconds, 0.0, 60.0);
+            ObstacleCooldownSeconds = ConfigMath.Clamp(ObstacleCooldownSeconds, 0.0, 120.0);
         }
     }
 }

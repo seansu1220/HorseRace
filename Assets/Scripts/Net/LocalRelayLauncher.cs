@@ -91,12 +91,21 @@ namespace HorseRace.Net
             _options = options;
             HostKey = HostKeyStore.LoadOrCreate(options.HostKeyFile, Warn);
 
+            // 在主執行緒上先把埠決定好：大螢幕的連線位址與區網網址都要用同一個埠
+            Port = PortPicker.Choose(options.Port, Log, Warn);
+
             _status.Tunnel = options.UseTunnel ? TunnelState.Starting : TunnelState.Disabled;
             _status.TunnelDetail = options.UseTunnel ? "外網通道準備中…" : "";
         }
 
         /// <summary>大螢幕連線時要帶的金鑰，伺服器由本類別啟動時會設定成同一把。</summary>
         public string HostKey { get; private set; }
+
+        /// <summary>
+        /// 實際使用的埠。通常等於設定值；設定的埠被別的程式佔住時會自動換成下一個空的埠，
+        /// 呼叫端要用這個值組大螢幕的連線位址與區網網址。
+        /// </summary>
+        public int Port { get; private set; }
 
         public LocalRelayStatus Status
         {
@@ -231,12 +240,12 @@ namespace HorseRace.Net
         {
             bool announced = false;
 
-            while (await IsPortOpenAsync(_options.Port).ConfigureAwait(false))
+            while (await IsPortOpenAsync(Port).ConfigureAwait(false))
             {
                 if (!announced)
                 {
                     announced = true;
-                    Log("[LocalRelay] 埠 " + _options.Port + " 已有伺服器在執行，直接沿用（本程式不會關閉它）。");
+                    Log("[LocalRelay] 埠 " + Port + " 已有伺服器在執行，直接沿用（本程式不會關閉它）。");
                 }
 
                 await Task.Delay(ExternalServerPollInterval, token).ConfigureAwait(false);
@@ -266,7 +275,7 @@ namespace HorseRace.Net
                 }
 
                 SetServerProblem(null);
-                Log("[LocalRelay] 已啟動本機中繼伺服器（" + node + "，埠 " + _options.Port + "）");
+                Log("[LocalRelay] 已啟動本機中繼伺服器（" + node + "，埠 " + Port + "）");
 
                 int exitCode = await WaitForExitAsync(server, token).ConfigureAwait(false);
                 ReleaseChild(server);
@@ -276,10 +285,23 @@ namespace HorseRace.Net
                     return;
                 }
 
-                ReportServerProblem("中繼伺服器意外結束，重啟中…", "中繼伺服器意外結束（代碼 " + exitCode + "），"
-                    + (int)ServerRestartDelay.TotalSeconds + " 秒後重新啟動。");
+                ReportServerExit(exitCode);
                 await Task.Delay(ServerRestartDelay, token).ConfigureAwait(false);
             }
+        }
+
+        private void ReportServerExit(int exitCode)
+        {
+            string retry = (int)ServerRestartDelay.TotalSeconds + " 秒後重新啟動。";
+            if (_sawAddressInUse)
+            {
+                _sawAddressInUse = false;
+                ReportServerProblem("埠 " + Port + " 被佔用，等待釋放…", "埠 " + Port + " 被其他程式佔用（"
+                    + PortOwner.Describe(Port) + "），" + retry);
+                return;
+            }
+
+            ReportServerProblem("中繼伺服器意外結束，重啟中…", "中繼伺服器意外結束（代碼 " + exitCode + "），" + retry);
         }
 
         private ProcessStartInfo BuildServerStartInfo(string node)
@@ -291,13 +313,21 @@ namespace HorseRace.Net
                 WorkingDirectory = _options.ServerDirectory
             };
 
-            startInfo.Environment[PortEnvironmentName] = _options.Port.ToString();
+            startInfo.Environment[PortEnvironmentName] = Port.ToString();
             startInfo.Environment[HostKeyEnvironmentName] = HostKey;
             return startInfo;
         }
 
+        /// <summary>伺服器輸出過「埠被佔用」，用來把意外結束的原因講清楚。</summary>
+        private volatile bool _sawAddressInUse;
+
         private void OnServerOutput(string line)
         {
+            if (line.IndexOf("EADDRINUSE", StringComparison.Ordinal) >= 0)
+            {
+                _sawAddressInUse = true;
+            }
+
             bool looksLikeError = line.IndexOf("Error", StringComparison.Ordinal) >= 0
                                   || line.IndexOf("錯誤", StringComparison.Ordinal) >= 0;
             if (looksLikeError)
@@ -403,7 +433,7 @@ namespace HorseRace.Net
                     }
 
                     using (QuickTunnel tunnel = new QuickTunnel(
-                               executable, _options.Port, StartChild, Log, Warn, ReportTunnel))
+                               executable, Port, StartChild, Log, Warn, ReportTunnel))
                     {
                         await tunnel.RunAsync(token).ConfigureAwait(false);
                     }

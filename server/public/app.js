@@ -29,13 +29,14 @@ const SHAKE_REFRACTORY_MS = 150;
 const RECONNECT_MAX_MS = 5000;
 
 /** 下注金額的快捷鍵。「全部」與自訂輸入另外處理。 */
-const PRESET_AMOUNTS = [50, 100, 500, 1000];
+const PRESET_AMOUNTS = [1, 10, 100, 1000];
 
 /** 買券送出後多久沒回應就放棄等待（通常 0.2 秒內就會回來）。 */
 const ITEM_PENDING_TIMEOUT_MS = 4000;
 
-const KINDS = ['boost', 'slow'];
-const KIND_NAMES = { boost: '加速券', slow: '減速券' };
+const KINDS = ['boost', 'slow', 'obstacle'];
+const KIND_NAMES = { boost: '加速券', slow: '減速券', obstacle: '障礙券' };
+const KIND_SHORT = { boost: '加速', slow: '減速', obstacle: '障礙' };
 
 // ---------------------------------------------------------------- 狀態
 
@@ -53,7 +54,10 @@ const state = {
   raceNumber: 0,
   players: 0,
   horses: [],
-  rules: { minBet: 50, itemCost: 5, itemSeconds: 2, itemCooldown: 2, boostX: 1.35, slowX: 0.6 },
+  rules: {
+    minBet: 1, itemCost: 5, itemSeconds: 2, itemCooldown: 2, boostX: 1.35, slowX: 0.6,
+    obstacleCost: 10, obstacleSeconds: 2, obstacleCooldown: 2,
+  },
 
   balance: 0,
   bets: [],
@@ -70,14 +74,18 @@ const state = {
   driveLevels: [],
   driveLane: -1,
   driveChosen: false,
-  pick: { boost: -1, slow: -1 },
-  pickChosen: { boost: false, slow: false },
-  cooldown: { boost: { until: 0, total: 1 }, slow: { until: 0, total: 1 } },
+  pick: { boost: -1, slow: -1, obstacle: -1 },
+  pickChosen: { boost: false, slow: false, obstacle: false },
+  cooldown: {
+    boost: { until: 0, total: 1 }, slow: { until: 0, total: 1 }, obstacle: { until: 0, total: 1 },
+  },
   pending: { kind: '', lane: -1, at: 0 },
 
   pendingSteps: 0,
 
   finishOrder: [],
+  finishTimes: [],
+  usage: [],
   leaders: [],
 };
 
@@ -94,16 +102,17 @@ for (const id of [
   'waitScreen', 'waitWho', 'waitBalance', 'waitHint', 'waitCrowd', 'waitCount', 'waitListTitle', 'waitList',
   'betScreen', 'chipTray', 'customBox', 'customAmount', 'oddsList', 'betNote',
   'slipRace', 'slipLines', 'slipTotal',
-  'raceScreen', 'fieldList', 'boostTicket', 'slowTicket', 'boostEffect', 'slowEffect',
-  'boostPicks', 'slowPicks', 'drivePct', 'drivePicks', 'meterFill', 'tapPad', 'tapHint',
+  'raceScreen', 'fieldList', 'boostTicket', 'slowTicket', 'obstacleTicket',
+  'boostEffect', 'slowEffect', 'obstacleEffect',
+  'boostPicks', 'slowPicks', 'obstaclePicks', 'drivePct', 'drivePicks', 'meterFill', 'tapPad', 'tapHint',
   'motionButton', 'motionNote', 'toast',
   'resultScreen', 'resultLabel', 'resultDelta', 'resultLine', 'resultOrder', 'leaderList',
 ]) {
   dom[id] = document.getElementById(id);
 }
 
-const tickets = { boost: dom.boostTicket, slow: dom.slowTicket };
-const pickContainers = { boost: dom.boostPicks, slow: dom.slowPicks };
+const tickets = { boost: dom.boostTicket, slow: dom.slowTicket, obstacle: dom.obstacleTicket };
+const pickContainers = { boost: dom.boostPicks, slow: dom.slowPicks, obstacle: dom.obstaclePicks };
 
 // ---------------------------------------------------------------- 連線
 
@@ -195,6 +204,8 @@ function handleMessage(message) {
       break;
     case 'result':
       state.finishOrder = Array.isArray(message.order) ? message.order : [];
+      state.finishTimes = Array.isArray(message.times) ? message.times : [];
+      state.usage = Array.isArray(message.usage) ? message.usage : [];
       state.leaders = Array.isArray(message.top) ? message.top : [];
       render();
       break;
@@ -218,6 +229,9 @@ function onPhaseMessage(message) {
   if (message.itemCooldown > 0) rules.itemCooldown = message.itemCooldown;
   if (message.boostX > 0) rules.boostX = message.boostX;
   if (message.slowX > 0) rules.slowX = message.slowX;
+  if (typeof message.obstacleCost === 'number' && message.obstacleCost >= 0) rules.obstacleCost = message.obstacleCost;
+  if (message.obstacleSeconds > 0) rules.obstacleSeconds = message.obstacleSeconds;
+  if (message.obstacleCooldown > 0) rules.obstacleCooldown = message.obstacleCooldown;
 
   if (state.phase !== previousPhase || state.raceNumber !== previousRace) {
     onPhaseChanged();
@@ -228,6 +242,8 @@ function onPhaseMessage(message) {
 function onPhaseChanged() {
   if (state.phase === 'betting') {
     state.finishOrder = [];
+    state.finishTimes = [];
+    state.usage = [];
     dom.betNote.textContent = '';
   }
 
@@ -577,6 +593,10 @@ function chooseRaceDefaults() {
   if (!state.pickChosen.slow || !isValidLane(state.pick.slow)) {
     state.pick.slow = favoriteRival(state.pick.boost);
   }
+
+  if (!state.pickChosen.obstacle || !isValidLane(state.pick.obstacle)) {
+    state.pick.obstacle = favoriteRival(state.pick.boost);
+  }
 }
 
 function favoriteRival(excludeLane) {
@@ -624,9 +644,22 @@ function buildRaceControls() {
   });
 
   const rules = state.rules;
-  dom.boostEffect.textContent = `速度 ×${rules.boostX.toFixed(2)} · ${trimNumber(rules.itemSeconds)} 秒`;
-  dom.slowEffect.textContent = `速度 ×${rules.slowX.toFixed(2)} · ${trimNumber(rules.itemSeconds)} 秒`;
-  for (const cost of document.querySelectorAll('.item-cost')) cost.textContent = formatChips(rules.itemCost);
+  dom.boostEffect.textContent = `×${rules.boostX.toFixed(2)} · ${trimNumber(rules.itemSeconds)}秒`;
+  dom.slowEffect.textContent = `×${rules.slowX.toFixed(2)} · ${trimNumber(rules.itemSeconds)}秒`;
+  dom.obstacleEffect.textContent = `前方擋路 · 停${trimNumber(rules.obstacleSeconds)}秒`;
+  for (const kind of KINDS) {
+    tickets[kind].querySelector('.item-cost').textContent = formatChips(costOf(kind));
+  }
+}
+
+/** 這種券的價格。障礙券另外定價。 */
+function costOf(kind) {
+  return kind === 'obstacle' ? state.rules.obstacleCost : state.rules.itemCost;
+}
+
+/** 這種券買下後的冷卻秒數（券面轉一圈的時間）。 */
+function cooldownOf(kind) {
+  return kind === 'obstacle' ? state.rules.obstacleCooldown : state.rules.itemCooldown;
 }
 
 function trimNumber(value) {
@@ -655,6 +688,7 @@ function renderPicks() {
   };
   mark(dom.boostPicks, state.pick.boost);
   mark(dom.slowPicks, state.pick.slow);
+  mark(dom.obstaclePicks, state.pick.obstacle);
   mark(dom.drivePicks, state.driveLane);
 }
 
@@ -692,12 +726,15 @@ function renderField() {
 
     row.querySelector('.track i').style.width = Math.round((state.progress[lane] || 0) * 100) + '%';
 
+    // 位元旗標：1 加速中、2 減速中、4 撞到障礙物停住、8 前方有障礙物（見 Messages.cs 的 EffectFlags）
     const flags = state.effects[lane] | 0;
     const fx = row.querySelector('.fx');
-    const wanted = `${flags & 1 ? 'u' : ''}${flags & 2 ? 'd' : ''}`;
+    const wanted = String(flags);
     if (fx.dataset.flags !== wanted) {
       fx.dataset.flags = wanted;
       fx.textContent = '';
+      if (flags & 4) fx.append(el('i', 'stun', '暈'));
+      else if (flags & 8) fx.append(el('i', 'block', '▮'));
       if (flags & 1) fx.append(el('i', 'up', '▲'));
       if (flags & 2) fx.append(el('i', 'down', '▼'));
     }
@@ -714,7 +751,7 @@ function buyTicket(kind) {
     showToast('先在券下面選一匹馬', true);
     return;
   }
-  if (state.balance < state.rules.itemCost) {
+  if (state.balance < costOf(kind)) {
     showToast('籌碼不足', true);
     return;
   }
@@ -742,7 +779,7 @@ function applyCooldowns(message) {
     const cooldown = state.cooldown[kind];
     if (seconds > 0) {
       // 新的一輪冷卻才重設總長，避免同一輪中途收到錢包時圓圈跳回起點
-      if (cooldown.until <= now) cooldown.total = Math.max(seconds, state.rules.itemCooldown) * 1000;
+      if (cooldown.until <= now) cooldown.total = Math.max(seconds, cooldownOf(kind)) * 1000;
       cooldown.until = now + seconds * 1000;
     } else {
       cooldown.until = 0;
@@ -759,7 +796,7 @@ function finishItemRequest(reject) {
   if (reject) {
     showToast(reject, true);
   } else {
-    showToast(`已對 ${horseName(lane)} 使用${KIND_NAMES[kind]}，−${formatChips(state.rules.itemCost)}`);
+    showToast(`已對 ${horseName(lane)} 使用${KIND_NAMES[kind]}，−${formatChips(costOf(kind))}`);
   }
 }
 
@@ -825,15 +862,16 @@ function renderTickets() {
       cover.hidden = true;
     }
 
-    const affordable = state.balance >= state.rules.itemCost;
+    const affordable = state.balance >= costOf(kind);
     ticket.disabled = pending || remaining > 0 || !affordable || state.phase !== 'racing';
   }
 
   return busy;
 }
 
-tickets.boost.addEventListener('click', () => buyTicket('boost'));
-tickets.slow.addEventListener('click', () => buyTicket('slow'));
+for (const kind of KINDS) {
+  tickets[kind].addEventListener('click', () => buyTicket(kind));
+}
 
 // ---------------------------------------------------------------- 結果
 
@@ -862,11 +900,18 @@ function renderResult() {
   dom.resultOrder.textContent = '';
   state.finishOrder.forEach((lane, index) => {
     const place = el('div', index === 0 ? 'place first' : 'place');
+    const main = el('div', 'place-main');
     const swatch = el('span', 'swatch');
     swatch.style.background = horseColor(lane);
     const staked = stakeOn(lane);
-    place.append(el('span', 'pos', String(index + 1)), swatch, el('span', '', horseName(lane)),
-      el('span', 'mine', staked > 0 ? `你押 ${formatChips(staked)}` : ''));
+    const seconds = state.finishTimes[index];
+    main.append(el('span', 'pos', String(index + 1)), swatch, el('span', '', horseName(lane)),
+      el('span', 'mine', staked > 0 ? `你押 ${formatChips(staked)}` : ''),
+      el('span', 'time', seconds > 0 ? `${seconds.toFixed(2)} 秒` : ''));
+    place.append(main);
+
+    const usage = renderUsage(lane);
+    if (usage) place.append(usage);
     dom.resultOrder.append(place);
   });
 
@@ -881,6 +926,22 @@ function renderResult() {
       el('span', 'v', formatChips(entry.balance)));
     dom.leaderList.append(row);
   });
+}
+
+/** 某匹馬本場被誰用了什麼券：「加速 阿明×2、小美×1　減速 老王×2」。沒人用過就不顯示。 */
+function renderUsage(lane) {
+  const lines = state.usage.filter((entry) => entry.lane === lane);
+  if (lines.length === 0) return null;
+
+  const box = el('div', 'place-usage');
+  for (const kind of KINDS) {
+    const ofKind = lines.filter((entry) => entry.kind === kind);
+    if (ofKind.length === 0) continue;
+    if (box.childElementCount > 0) box.append('　');
+    box.append(el('b', kind, KIND_SHORT[kind]));
+    box.append(' ' + ofKind.map((entry) => `${entry.name}×${entry.count}`).join('、'));
+  }
+  return box;
 }
 
 function winnerLine(won) {

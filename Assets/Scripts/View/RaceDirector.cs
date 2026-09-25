@@ -23,6 +23,7 @@ namespace HorseRace.View
         private static readonly Color SlowAuraColor = new Color(0.36f, 0.68f, 1f);
         private static readonly Color DriveAuraLowColor = new Color(0.30f, 0.85f, 0.45f);
         private static readonly Color DriveAuraHighColor = new Color(1f, 0.35f, 0.15f);
+        private static readonly Color StunAuraColor = new Color(0.91f, 0.34f, 0.49f);
 
         private GameConfig _config;
         private GameLoop _loop;
@@ -34,6 +35,7 @@ namespace HorseRace.View
         private GameObject _hudObject;
         private RaceHud _hud;
         private HorseView[] _horseViews;
+        private ObstacleMarkers _obstacles;
         private int[] _liveRanks;
 
         private Task<double[]> _oddsTask;
@@ -43,6 +45,9 @@ namespace HorseRace.View
         private RelayClient _relay;
         private LocalRelayLauncher _localRelay;
         private IntroPlayer _intro;
+
+        /// <summary>實際使用的中繼伺服器位址（本機伺服器換埠時與設定檔不同），不含大螢幕金鑰。</summary>
+        private string _relayUrl;
         private DriveMessage _driveMessage;
         private float _nextDrivePushTime;
 
@@ -66,6 +71,17 @@ namespace HorseRace.View
             StartIntro();
         }
 
+        /// <summary>
+        /// 開場可以結束了嗎：大螢幕連上伺服器，而且外網通道已有結果（成功，或確定改用區網網址）。
+        /// 在那之前揭開等待入場畫面，看到的只會是空白的 QRCode。
+        /// </summary>
+        private bool IsReadyToRevealLobby()
+        {
+            bool relayReady = _relay == null || _relay.IsConnected;
+            bool tunnelSettled = _localRelay == null || _localRelay.Status.Tunnel != TunnelState.Starting;
+            return relayReady && tunnelSettled;
+        }
+
         private void StartIntro()
         {
             if (!_config.Presentation.PlayIntro)
@@ -73,7 +89,7 @@ namespace HorseRace.View
                 return;
             }
 
-            _intro = IntroPlayer.Create(transform, _config);
+            _intro = IntroPlayer.Create(transform, _config, IsReadyToRevealLobby);
             _intro.Finished += () => _intro = null;
         }
 
@@ -168,7 +184,7 @@ namespace HorseRace.View
                     break;
 
                 case RacePhase.Photo:
-                    _hud.ShowResult(_loop.Race, _loop.FinishOrder);
+                    _hud.ShowResult(_loop.Race, _loop.FinishOrder, _loop.Items.Summarize());
                     LogFinishOrder();
                     break;
 
@@ -220,7 +236,8 @@ namespace HorseRace.View
                 return;
             }
 
-            string relayUrl = network.RelayUrl;
+            _relayUrl = network.RelayUrl;
+            string connectUrl = _relayUrl;
 
             if (LocalRelayOptions.ShouldLaunch(network))
             {
@@ -229,17 +246,20 @@ namespace HorseRace.View
 
                 _localRelay = new LocalRelayLauncher(options);
                 _localRelay.Start();
-                relayUrl = LocalRelayLauncher.WithHostKey(relayUrl, _localRelay.HostKey);
+
+                // 設定的埠被佔用時啟動器會換埠，連線位址要跟著換
+                _relayUrl = LocalAddress.WithPort(network.RelayUrl, _localRelay.Port);
+                connectUrl = LocalRelayLauncher.WithHostKey(_relayUrl, _localRelay.HostKey);
 
                 Debug.Log("[RaceDirector] 自動啟動本機中繼伺服器：" + options.ServerDirectory
                           + (options.UseTunnel ? "（含外網通道）" : ""));
             }
 
             _relay = new RelayClient();
-            _relay.Start(relayUrl, network.ReconnectSeconds);
+            _relay.Start(connectUrl, network.ReconnectSeconds);
 
-            // 刻意印原始位址：帶金鑰的版本不該出現在 log 裡
-            Debug.Log("[RaceDirector] 連往中繼伺服器：" + network.RelayUrl);
+            // 刻意印不含金鑰的位址：帶金鑰的版本不該出現在 log 裡
+            Debug.Log("[RaceDirector] 連往中繼伺服器：" + _relayUrl);
         }
 
         /// <summary>把啟動器的 log 轉到 Unity，並在通道狀態變化時更新 QRCode。</summary>
@@ -335,7 +355,7 @@ namespace HorseRace.View
                 }
             }
 
-            string lanUrl = LocalAddress.DeriveJoinUrl(network.RelayUrl);
+            string lanUrl = LocalAddress.DeriveJoinUrl(_relayUrl ?? network.RelayUrl);
             if (string.IsNullOrEmpty(lanUrl))
             {
                 caption = null;
@@ -466,7 +486,7 @@ namespace HorseRace.View
 
         private void HandleItem(InboundMessage message)
         {
-            EffectKind kind;
+            ItemKind kind;
             if (!ItemKinds.TryParse(message.kind, out kind))
             {
                 // 不認得的種類只可能是舊版或被改過的手機頁，丟掉就好，不能影響賽事
@@ -485,6 +505,12 @@ namespace HorseRace.View
 
             ItemRejection rejection = _loop.TryUseItem(message.pid, kind, message.lane);
             SendWallet(account, rejection == ItemRejection.None ? null : DescribeItemRejection(rejection));
+
+            if (rejection == ItemRejection.None)
+            {
+                // 大螢幕即時播報「誰對哪匹馬用了什麼券」，這是全場最好笑的部分
+                _hud.PushItemUse(account.Nickname, kind, message.lane);
+            }
         }
 
         /// <summary>買券被拒的原因，給玩家看的措辭。</summary>
@@ -504,6 +530,12 @@ namespace HorseRace.View
                     return "本場的券用完了";
                 case ItemRejection.HorseEffectsFull:
                     return "這匹馬身上的效果已滿，等一下再試";
+                case ItemRejection.ObstacleAlreadyPlaced:
+                    return "這匹馬前方已經有障礙物了";
+                case ItemRejection.HorseRecovering:
+                    return "這匹馬剛被絆倒，等一下再放";
+                case ItemRejection.TooCloseToFinish:
+                    return "太接近終點，放不下障礙物";
                 case ItemRejection.InsufficientChips:
                     return "籌碼不足";
                 case ItemRejection.UnknownPlayer:
@@ -540,8 +572,9 @@ namespace HorseRace.View
                 payout = account.LastPayout,
                 delta = account.LastDelta,
                 reject = rejectReason ?? string.Empty,
-                boostCool = _loop.ItemCooldownRemaining(account.PlayerId, EffectKind.Boost),
-                slowCool = _loop.ItemCooldownRemaining(account.PlayerId, EffectKind.Slow)
+                boostCool = _loop.ItemCooldownRemaining(account.PlayerId, ItemKind.Boost),
+                slowCool = _loop.ItemCooldownRemaining(account.PlayerId, ItemKind.Slow),
+                obstacleCool = _loop.ItemCooldownRemaining(account.PlayerId, ItemKind.Obstacle)
             };
 
             _relay.Send(JsonUtility.ToJson(message));
@@ -571,13 +604,51 @@ namespace HorseRace.View
             ResultMessage result = new ResultMessage
             {
                 order = _loop.FinishOrder,
-                top = top
+                times = FinishTimesInOrder(),
+                top = top,
+                usage = BuildUsageEntries()
             };
 
             _relay.Send(JsonUtility.ToJson(result));
         }
 
         private const int LeaderboardSize = 5;
+
+        /// <summary>依名次排列的完賽秒數，與 FinishOrder 一一對應。</summary>
+        private float[] FinishTimesInOrder()
+        {
+            int[] order = _loop.FinishOrder;
+            if (order == null || _loop.Race == null)
+            {
+                return new float[0];
+            }
+
+            float[] times = new float[order.Length];
+            for (int i = 0; i < order.Length; i++)
+            {
+                times[i] = (float)_loop.Race.Horses[order[i]].FinishTime;
+            }
+
+            return times;
+        }
+
+        private UsageEntry[] BuildUsageEntries()
+        {
+            List<ItemUsageLine> lines = _loop.Items.Summarize();
+            UsageEntry[] entries = new UsageEntry[lines.Count];
+            for (int i = 0; i < lines.Count; i++)
+            {
+                entries[i] = new UsageEntry
+                {
+                    lane = lines[i].Lane,
+                    kind = ItemKinds.ToWire(lines[i].Kind),
+                    name = lines[i].Nickname,
+                    count = lines[i].Count
+                };
+            }
+
+            return entries;
+        }
 
         private void BroadcastPhase()
         {
@@ -622,7 +693,10 @@ namespace HorseRace.View
                 itemSeconds = _config.Items.DurationSeconds,
                 itemCooldown = _config.Items.EffectiveCooldownSeconds,
                 boostX = _config.Items.BoostMultiplier,
-                slowX = _config.Items.SlowMultiplier
+                slowX = _config.Items.SlowMultiplier,
+                obstacleCost = _config.Items.ObstacleCost,
+                obstacleSeconds = _config.Items.ObstacleStunSeconds,
+                obstacleCooldown = _config.Items.CooldownOf(ItemKind.Obstacle)
             };
 
             _relay.Send(JsonUtility.ToJson(message));
@@ -668,6 +742,16 @@ namespace HorseRace.View
             for (int i = 0; i < horse.Effects.Count; i++)
             {
                 flags |= horse.Effects[i].Kind == EffectKind.Boost ? EffectFlags.Boosted : EffectFlags.Slowed;
+            }
+
+            if (horse.StunRemaining > 0.0)
+            {
+                flags |= EffectFlags.Stunned;
+            }
+
+            if (horse.ObstacleAt != HorseState.NoObstacle)
+            {
+                flags |= EffectFlags.ObstacleAhead;
             }
 
             return flags;
@@ -769,6 +853,7 @@ namespace HorseRace.View
                     _horseViews[lane].UpdateVisual(0f, IdleStrideRatio, deltaTime);
                 }
 
+                _obstacles.HideAll();
                 return;
             }
 
@@ -780,11 +865,20 @@ namespace HorseRace.View
                 _horseViews[lane].UpdateVisual((float)horse.Progress01, speedRatio, deltaTime);
                 UpdateAura(_horseViews[lane], horse);
             }
+
+            _obstacles.Refresh(race);
         }
 
         /// <summary>光環優先序：道具 &gt; 體力驅動。道具是別人動的手腳，比自己出力更需要被看見。</summary>
         private static void UpdateAura(HorseView view, HorseState horse)
         {
+            // 被障礙物絆住最優先：整匹馬停在原地，最需要讓全場看出「牠被陰了」
+            if (horse.StunRemaining > 0.0)
+            {
+                view.SetAura(true, StunAuraColor);
+                return;
+            }
+
             int effectCount = horse.Effects.Count;
             if (effectCount > 0)
             {
@@ -915,6 +1009,7 @@ namespace HorseRace.View
             SetupEnvironment();
 
             _track = TrackBuilder.Build(laneCount);
+            _obstacles = ObstacleMarkers.Build(_track, laneCount);
             _horseViews = new HorseView[laneCount];
             for (int lane = 0; lane < laneCount; lane++)
             {
@@ -1035,6 +1130,25 @@ namespace HorseRace.View
             {
                 ApplyDebugEffect(EffectKind.Slow);
             }
+
+            if (Input.GetKeyDown(KeyCode.Alpha3))
+            {
+                PlaceDebugObstacle();
+            }
+        }
+
+        /// <summary>除錯用：在隨機一匹馬前方放障礙物，不扣任何人的籌碼。</summary>
+        private void PlaceDebugObstacle()
+        {
+            RaceEngine race = _loop.Race;
+            if (_loop.Phase != RacePhase.Racing || race == null)
+            {
+                return;
+            }
+
+            int lane = _debugRandom.NextInt(race.HorseCount);
+            ItemConfig items = _config.Items;
+            race.PlaceObstacle(lane, race.Horses[lane].Distance + items.ObstacleLeadMeters, items.ObstacleStunSeconds);
         }
 
         /// <summary>

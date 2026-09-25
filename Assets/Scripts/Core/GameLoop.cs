@@ -113,7 +113,7 @@ namespace HorseRace.Core
         /// <summary>
         /// 代為購買並使用一張道具券。「什麼時候能用」由這裡把關，扣款與冷卻由 <see cref="ItemShop"/> 決定。
         /// </summary>
-        public ItemRejection TryUseItem(string playerId, EffectKind kind, int lane)
+        public ItemRejection TryUseItem(string playerId, ItemKind kind, int lane)
         {
             if (Phase != RacePhase.Racing || Race == null)
             {
@@ -124,7 +124,7 @@ namespace HorseRace.Core
         }
 
         /// <summary>這名玩家的這種券還要冷卻幾秒；不在比賽中時為 0。</summary>
-        public double ItemCooldownRemaining(string playerId, EffectKind kind)
+        public double ItemCooldownRemaining(string playerId, ItemKind kind)
         {
             return Race == null || Phase != RacePhase.Racing
                 ? 0.0

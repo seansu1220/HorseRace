@@ -52,34 +52,44 @@ namespace HorseRace.Core.Protocol
         public string kind;
     }
 
-    /// <summary>道具券種類在協定上的字串，與 <see cref="EffectKind"/> 一對一。</summary>
+    /// <summary>道具券種類在協定上的字串，與 <see cref="ItemKind"/> 一對一。</summary>
     public static class ItemKinds
     {
         public const string Boost = "boost";
         public const string Slow = "slow";
+        public const string Obstacle = "obstacle";
 
         /// <summary>解析手機送來的種類字串；不認得的一律拒絕，不猜。</summary>
-        public static bool TryParse(string wire, out EffectKind kind)
+        public static bool TryParse(string wire, out ItemKind kind)
         {
-            if (wire == Boost)
+            switch (wire)
             {
-                kind = EffectKind.Boost;
-                return true;
+                case Boost:
+                    kind = ItemKind.Boost;
+                    return true;
+                case Slow:
+                    kind = ItemKind.Slow;
+                    return true;
+                case Obstacle:
+                    kind = ItemKind.Obstacle;
+                    return true;
+                default:
+                    kind = ItemKind.Boost;
+                    return false;
             }
-
-            if (wire == Slow)
-            {
-                kind = EffectKind.Slow;
-                return true;
-            }
-
-            kind = EffectKind.Boost;
-            return false;
         }
 
-        public static string ToWire(EffectKind kind)
+        public static string ToWire(ItemKind kind)
         {
-            return kind == EffectKind.Slow ? Slow : Boost;
+            switch (kind)
+            {
+                case ItemKind.Slow:
+                    return Slow;
+                case ItemKind.Obstacle:
+                    return Obstacle;
+                default:
+                    return Boost;
+            }
         }
     }
 
@@ -132,6 +142,15 @@ namespace HorseRace.Core.Protocol
 
         /// <summary>減速券的速度倍率，例如 0.6。</summary>
         public double slowX;
+
+        /// <summary>障礙券的價格。</summary>
+        public int obstacleCost;
+
+        /// <summary>撞到障礙物後停住的秒數。</summary>
+        public double obstacleSeconds;
+
+        /// <summary>障礙券兩次購買之間的冷卻秒數。</summary>
+        public double obstacleCooldown;
     }
 
     /// <summary>
@@ -149,7 +168,7 @@ namespace HorseRace.Core.Protocol
         /// <summary>賽程進度 0~1。</summary>
         public float[] p;
 
-        /// <summary>身上生效中的道具：位元旗標，1 = 加速中、2 = 減速中，可同時成立。</summary>
+        /// <summary>道具狀態的位元旗標（見 <see cref="EffectFlags"/>），可同時成立。</summary>
         public int[] fx;
     }
 
@@ -158,6 +177,12 @@ namespace HorseRace.Core.Protocol
     {
         public const int Boosted = 1;
         public const int Slowed = 2;
+
+        /// <summary>撞到障礙物，正停在原地。</summary>
+        public const int Stunned = 4;
+
+        /// <summary>前方有障礙物等著。</summary>
+        public const int ObstacleAhead = 8;
     }
 
     /// <summary>一筆注。</summary>
@@ -198,6 +223,9 @@ namespace HorseRace.Core.Protocol
 
         /// <summary>減速券還要冷卻幾秒，0 代表可以買。</summary>
         public double slowCool;
+
+        /// <summary>障礙券還要冷卻幾秒，0 代表可以買。</summary>
+        public double obstacleCool;
     }
 
     /// <summary>排行榜的一列。</summary>
@@ -206,6 +234,19 @@ namespace HorseRace.Core.Protocol
     {
         public string name;
         public int balance;
+    }
+
+    /// <summary>某名玩家對某匹馬用了幾張某種券（賽後統計的一列）。</summary>
+    [Serializable]
+    public sealed class UsageEntry
+    {
+        public int lane;
+
+        /// <summary>券的種類，見 <see cref="ItemKinds"/>。</summary>
+        public string kind;
+
+        public string name;
+        public int count;
     }
 
     /// <summary>賽果與排行榜，廣播給所有手機。</summary>
@@ -217,6 +258,12 @@ namespace HorseRace.Core.Protocol
         /// <summary>依名次排列的閘號，索引 0 是冠軍。</summary>
         public int[] order;
 
+        /// <summary>依名次排列的完賽秒數，與 <see cref="order"/> 一一對應。</summary>
+        public float[] times;
+
         public LeaderEntry[] top;
+
+        /// <summary>本場每匹馬被誰用了什麼券、幾張。</summary>
+        public UsageEntry[] usage;
     }
 }

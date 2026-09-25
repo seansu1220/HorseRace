@@ -204,6 +204,33 @@ namespace HorseRace.Core
             return true;
         }
 
+        /// <summary>
+        /// 在指定位置放一個障礙物，那匹馬跑到這裡會停住 <paramref name="stunSeconds"/> 秒。
+        /// 規則面的限制（同時只能一個、保護期、太靠近終點）由呼叫端把關，這裡只擋物理上不成立的情況。
+        /// </summary>
+        /// <returns>閘號有效、馬還在跑、前方沒有障礙物、位置在馬前方且在終點前時回傳 true。</returns>
+        public bool PlaceObstacle(int lane, double positionMeters, double stunSeconds)
+        {
+            if (lane < 0 || lane >= _horses.Length || stunSeconds <= 0.0)
+            {
+                return false;
+            }
+
+            HorseState horse = _horses[lane];
+            bool valid = !horse.Finished
+                         && horse.ObstacleAt == HorseState.NoObstacle
+                         && positionMeters > horse.Distance
+                         && positionMeters < _config.TrackLengthMeters;
+            if (!valid)
+            {
+                return false;
+            }
+
+            horse.ObstacleAt = positionMeters;
+            horse.ObstacleStunSeconds = stunSeconds;
+            return true;
+        }
+
         /// <summary>目前的體力驅動強度 0~1，供大螢幕顯示力度條。</summary>
         public double DriveLevelOf(int lane)
         {
@@ -313,14 +340,30 @@ namespace HorseRace.Core
                 ExpireEffects(horse, dt);
                 DecayDrive(horse, dt);
 
+                // 停住時照樣推進速度波動：所有馬共用一個亂數產生器，
+                // 少抽一次會讓其他馬的跑法跟著改變，障礙物就不只影響被絆住的那匹了
                 double targetSpeed = ComputeTargetSpeed(horse, dt);
+
+                if (horse.StunRemaining > 0.0)
+                {
+                    UpdateStun(horse, dt);
+                    continue;
+                }
+
                 horse.Speed += (targetSpeed - horse.Speed) * _config.SpeedSmoothing * dt;
                 if (horse.Speed < 0.0)
                 {
                     horse.Speed = 0.0;
                 }
 
-                horse.Distance += horse.Speed * dt;
+                double next = horse.Distance + horse.Speed * dt;
+                if (horse.ObstacleAt != HorseState.NoObstacle && next >= horse.ObstacleAt)
+                {
+                    HitObstacle(horse);
+                    continue;
+                }
+
+                horse.Distance = next;
 
                 if (horse.Distance >= _config.TrackLengthMeters)
                 {
@@ -401,6 +444,28 @@ namespace HorseRace.Core
             }
         }
 
+        /// <summary>撞上障礙物：停在障礙物前、速度歸零，之後從靜止重新加速。</summary>
+        private void HitObstacle(HorseState horse)
+        {
+            horse.Distance = horse.ObstacleAt;
+            horse.Progress01 = horse.Distance / _config.TrackLengthMeters;
+            horse.Speed = 0.0;
+            horse.StunRemaining = horse.ObstacleStunSeconds;
+            horse.ObstacleAt = HorseState.NoObstacle;
+            horse.ObstacleHits++;
+        }
+
+        private void UpdateStun(HorseState horse, double dt)
+        {
+            horse.Speed = 0.0;
+            horse.StunRemaining -= dt;
+            if (horse.StunRemaining <= 0.0)
+            {
+                horse.StunRemaining = 0.0;
+                horse.StunEndedAt = _elapsedSeconds;
+            }
+        }
+
         private static void ExpireEffects(HorseState horse, double dt)
         {
             List<SpeedEffect> effects = horse.Effects;
@@ -426,6 +491,7 @@ namespace HorseRace.Core
             horse.Speed = 0.0;
             horse.Finished = true;
             horse.Effects.Clear();
+            horse.ObstacleAt = HorseState.NoObstacle; // 還沒撞到就衝線了，障礙物跟著撤掉
             _finishedCount++;
         }
 
@@ -446,6 +512,7 @@ namespace HorseRace.Core
                 horse.Speed = 0.0;
                 horse.Finished = true;
                 horse.Effects.Clear();
+                horse.ObstacleAt = HorseState.NoObstacle;
                 _finishedCount++;
             }
         }

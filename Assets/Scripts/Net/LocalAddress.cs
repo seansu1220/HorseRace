@@ -122,6 +122,19 @@ namespace HorseRace.Net
                 : scheme + "://" + host + ":" + uri.Port + "/";
         }
 
+        /// <summary>把網址的埠換成指定值（本機伺服器因埠被佔用而換埠時用）。格式不對就原樣回傳。</summary>
+        public static string WithPort(string url, int port)
+        {
+            Uri uri;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out uri))
+            {
+                return url;
+            }
+
+            UriBuilder builder = new UriBuilder(uri) { Port = port };
+            return builder.Uri.ToString();
+        }
+
         /// <summary>主機名稱是否指向本機（Uri.Host 對 IPv6 會帶中括號，兩種寫法都認）。</summary>
         public static bool IsLoopbackHost(string host)
         {

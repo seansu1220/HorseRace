@@ -25,7 +25,7 @@
     "SettleSeconds": 8.0,
 
     "StartingChips": 1000,
-    "MinimumBet": 50,
+    "MinimumBet": 1,
     "CharityChips": 200,
     "TakeRate": 0.15,
     "OddsSimulationRuns": 1500,
@@ -40,7 +40,13 @@
     "CooldownSeconds": 0.0,
     "Cost": 5,
     "UsesPerRace": 0,
-    "MaxStacksPerHorse": 2
+    "MaxStacksPerHorse": 2,
+
+    "ObstacleCost": 10,
+    "ObstacleStunSeconds": 2.0,
+    "ObstacleLeadMeters": 10.0,
+    "ObstacleImmunitySeconds": 3.0,
+    "ObstacleCooldownSeconds": 0.0
   },
 
   "Network": {
@@ -62,7 +68,8 @@
     "PlayIntro": true,
     "IntroVideo": "intro/intro.mp4",
     "PlaceholderSeconds": 6.0,
-    "IntroSkippable": true
+    "IntroSkippable": true,
+    "IntroMaxWaitSeconds": 30.0
   },
 
   "Roster": [

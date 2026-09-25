@@ -111,7 +111,7 @@ namespace HorseRace.Core
         public int StartingChips = 1000;
 
         /// <summary>單筆最低下注額。</summary>
-        public int MinimumBet = 50;
+        public int MinimumBet = 1;
 
         /// <summary>
         /// 同情籌碼：每場開賽前，籌碼低於這個數字的玩家會被補到這個數字。

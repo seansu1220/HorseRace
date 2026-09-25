@@ -41,7 +41,10 @@ namespace HorseRace.View
 
         private RectTransform _resultPanel;
         private Text[] _resultRows;
+        private Text[] _resultUsage;
         private Text _resultTitle;
+
+        private ItemFeed _itemFeed;
 
         private RectTransform _nameTagLayer;
         private Text[] _nameTags;
@@ -75,6 +78,7 @@ namespace HorseRace.View
             BuildHorseList(laneCount);
             BuildLeaderboard(laneCount);
             BuildStatusLine();
+            _itemFeed = ItemFeed.Build(_canvas.transform);
             BuildHint();
             BuildResultPanel(laneCount);
 
@@ -196,8 +200,22 @@ namespace HorseRace.View
             _lobby.SetConnection(connected, detail);
         }
 
-        /// <summary>揭曉名次。</summary>
-        public void ShowResult(RaceEngine race, int[] finishOrder)
+        /// <summary>播報一筆道具券使用：「阿明 → 蒼影 減速券」。</summary>
+        public void PushItemUse(string nickname, ItemKind kind, int lane)
+        {
+            _itemFeed.Push(nickname, kind, lane, Time.unscaledTime);
+        }
+
+        private void Update()
+        {
+            if (_itemFeed != null)
+            {
+                _itemFeed.Refresh(Time.unscaledTime, _lineup);
+            }
+        }
+
+        /// <summary>揭曉名次，每匹馬下面列出本場誰對牠用了什麼券、幾張。</summary>
+        public void ShowResult(RaceEngine race, int[] finishOrder, IReadOnlyList<ItemUsageLine> usage)
         {
             _resultPanel.gameObject.SetActive(true);
             _resultTitle.text = "名 次";
@@ -206,6 +224,7 @@ namespace HorseRace.View
             {
                 bool active = position < finishOrder.Length;
                 _resultRows[position].gameObject.SetActive(active);
+                _resultUsage[position].gameObject.SetActive(active);
                 if (!active)
                 {
                     continue;
@@ -222,6 +241,7 @@ namespace HorseRace.View
                 _resultRows[position].color = position == 0
                     ? UiFactory.AccentColor
                     : UiFactory.TextColor;
+                _resultUsage[position].text = ItemStyle.FormatUsage(usage, lane);
             }
         }
 
@@ -348,27 +368,42 @@ namespace HorseRace.View
             return row;
         }
 
+        /// <summary>名次面板每一列的高度：名次一行、券的使用統計一行。</summary>
+        private const float ResultRowHeight = 98f;
+        private const float ResultPanelWidth = 1000f;
+
         private void BuildResultPanel(int laneCount)
         {
-            float height = 130f + laneCount * 62f;
+            float height = 120f + laneCount * ResultRowHeight;
 
             _resultPanel = UiFactory.Panel(_canvas.transform, "ResultPanel", UiFactory.PanelColorSolid);
             UiFactory.Place(_resultPanel, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                new Vector2(0f, -30f), new Vector2(700f, height));
+                new Vector2(0f, -30f), new Vector2(ResultPanelWidth, height));
 
             _resultTitle = UiFactory.Label(_resultPanel, "Title", "名 次", 40,
                 TextAnchor.UpperCenter, UiFactory.AccentColor, FontStyle.Bold);
             UiFactory.Place((RectTransform)_resultTitle.transform, new Vector2(0.5f, 1f),
-                new Vector2(0.5f, 1f), new Vector2(0f, -28f), new Vector2(640f, 52f));
+                new Vector2(0.5f, 1f), new Vector2(0f, -28f), new Vector2(ResultPanelWidth - 60f, 52f));
 
             _resultRows = new Text[laneCount];
+            _resultUsage = new Text[laneCount];
             for (int position = 0; position < laneCount; position++)
             {
+                float top = 96f + position * ResultRowHeight;
+
                 _resultRows[position] = UiFactory.Label(_resultPanel, "Result_" + position, "", 34,
                     TextAnchor.MiddleLeft, UiFactory.TextColor);
                 UiFactory.Place((RectTransform)_resultRows[position].transform,
                     new Vector2(0f, 1f), new Vector2(0f, 1f),
-                    new Vector2(72f, -(100f + position * 62f)), new Vector2(560f, 52f));
+                    new Vector2(64f, -top), new Vector2(ResultPanelWidth - 128f, 48f));
+
+                // 誰對這匹馬用了什麼券：人多時自動縮字，不會超出面板
+                _resultUsage[position] = UiFactory.Label(_resultPanel, "Usage_" + position, "", 24,
+                    TextAnchor.MiddleLeft, UiFactory.MutedTextColor);
+                UiFactory.Place((RectTransform)_resultUsage[position].transform,
+                    new Vector2(0f, 1f), new Vector2(0f, 1f),
+                    new Vector2(96f, -(top + 44f)), new Vector2(ResultPanelWidth - 160f, 36f));
+                UiFactory.ShrinkToFit(_resultUsage[position], 14);
             }
 
             _resultPanel.gameObject.SetActive(false);
@@ -482,7 +517,7 @@ namespace HorseRace.View
         private void BuildHint()
         {
             Text hint = UiFactory.Label(_canvas.transform, "DebugHint",
-                "[空白鍵] 跳過階段    [R] 重新開始    [1] 對隨機一匹加速    [2] 對隨機一匹減速    [Esc] 離開",
+                "[空白鍵] 跳過階段    [R] 重新開始    [1] 加速    [2] 減速    [3] 障礙物（隨機一匹）    [Esc] 離開",
                 22, TextAnchor.LowerLeft, UiFactory.MutedTextColor);
             UiFactory.Place((RectTransform)hint.transform, new Vector2(0f, 0f),
                 new Vector2(0f, 0f), new Vector2(36f, 28f), new Vector2(1200f, 34f));
