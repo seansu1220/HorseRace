@@ -37,6 +37,8 @@ namespace HorseRace.Tests
             ConfigTests();
             GameLoopTests();
             LobbyTests();
+            ItemShopTests();
+            StepGateTests();
 
             Console.WriteLine();
             if (Failures.Count == 0)
@@ -857,6 +859,214 @@ namespace HorseRace.Tests
             Check("同 seed 的 GameLoop 產生相同名單與賽事種子",
                 Math.Abs(deterministicA.Lineup[0].BaseSpeed - deterministicB.Lineup[0].BaseSpeed) < 1e-12
                 && deterministicA.RaceSeed == deterministicB.RaceSeed);
+        }
+
+        // ---------------------------------------------------------------- 道具券
+
+        /// <summary>建立一個已經進入 Racing 的 GameLoop（跳過等待入場、Idle、Betting）。</summary>
+        private static GameLoop RacingLoop(GameConfig config, int seed)
+        {
+            config.Race.WaitForHostToStart = false;
+            GameLoop loop = new GameLoop(config, seed);
+            loop.SkipPhase(); // Idle -> Betting
+            loop.SkipPhase(); // Betting -> Racing
+            return loop;
+        }
+
+        private static void ItemShopTests()
+        {
+            Section("道具券（ItemShop）");
+
+            GameConfig config = DefaultConfig();
+            ItemConfig items = config.Items;
+            Check("預設券價為 5 籌碼", items.Cost == 5);
+            Check("預設不限張數", items.UsesPerRace == 0);
+            Check("冷卻設 0 時等於效果時間（效果結束就能再買）",
+                Math.Abs(items.EffectiveCooldownSeconds - items.DurationSeconds) < 1e-12);
+            ItemConfig explicitCooldown = new ItemConfig { CooldownSeconds = 5.0 };
+            Check("有設定冷卻時以設定為準", Math.Abs(explicitCooldown.EffectiveCooldownSeconds - 5.0) < 1e-12);
+
+            // --- 階段檢查 ---
+            GameConfig bettingConfig = DefaultConfig();
+            bettingConfig.Race.WaitForHostToStart = false;
+            GameLoop betting = new GameLoop(bettingConfig, 51);
+            betting.SkipPhase(); // Idle -> Betting
+            betting.Book.Join("p1", "阿明");
+            Check("下注階段不能買券",
+                betting.TryUseItem("p1", EffectKind.Boost, 0) == ItemRejection.NotRacing
+                && betting.Book.Find("p1").Balance == bettingConfig.Race.StartingChips);
+
+            // --- 成功購買 ---
+            GameLoop loop = RacingLoop(DefaultConfig(), 52);
+            PlayerAccount buyer = loop.Book.Join("p1", "阿明");
+            int before = buyer.Balance;
+
+            Check("比賽中買加速券成功", loop.TryUseItem("p1", EffectKind.Boost, 0) == ItemRejection.None);
+            Check("扣掉券價", buyer.Balance == before - items.Cost);
+            Check("效果已套到那匹馬身上", loop.Race.ActiveEffectCount(0) == 1);
+            SpeedEffect applied = loop.Race.Horses[0].Effects[0];
+            Check("效果的種類、倍率、來源正確",
+                applied.Kind == EffectKind.Boost
+                && Math.Abs(applied.Multiplier - items.BoostMultiplier) < 1e-12
+                && applied.SourceNickname == "阿明");
+
+            Check("同一種券在效果期間不能再買",
+                loop.TryUseItem("p1", EffectKind.Boost, 1) == ItemRejection.CoolingDown);
+            Check("冷卻中被拒絕不扣錢", buyer.Balance == before - items.Cost);
+            Check("剛買完剩餘冷卻約等於效果時間",
+                Math.Abs(loop.ItemCooldownRemaining("p1", EffectKind.Boost) - items.EffectiveCooldownSeconds) < 0.05);
+
+            Check("兩種券各自冷卻：加速冷卻中仍可買減速",
+                loop.TryUseItem("p1", EffectKind.Slow, 2) == ItemRejection.None);
+
+            // 分小步推進：引擎每次 Tick 最多追 MaxCatchUpSeconds，一次餵 2 秒只會前進 0.25 秒
+            for (double waited = 0.0; waited < items.EffectiveCooldownSeconds + 0.1; waited += 0.05)
+            {
+                loop.Tick(0.05);
+            }
+
+            Check("效果結束後就能再買同一種券",
+                loop.ItemCooldownRemaining("p1", EffectKind.Boost) == 0.0
+                && loop.TryUseItem("p1", EffectKind.Boost, 0) == ItemRejection.None);
+
+            // --- 各種拒絕 ---
+            Check("沒見過的玩家被拒", loop.TryUseItem("ghost", EffectKind.Boost, 0) == ItemRejection.UnknownPlayer);
+            loop.Book.Join("p2", "小美");
+            Check("無效閘號被拒", loop.TryUseItem("p2", EffectKind.Boost, 99) == ItemRejection.InvalidLane);
+
+            PlayerAccount poor = loop.Book.Join("p3", "阿窮");
+            poor.Balance = items.Cost - 1;
+            Check("籌碼不足被拒且不扣錢",
+                loop.TryUseItem("p3", EffectKind.Slow, 1) == ItemRejection.InsufficientChips
+                && poor.Balance == items.Cost - 1);
+
+            GameLoop crowded = RacingLoop(DefaultConfig(), 53);
+            for (int i = 0; i < items.MaxStacksPerHorse; i++)
+            {
+                crowded.Book.Join("c" + i, "玩家" + i);
+                crowded.TryUseItem("c" + i, EffectKind.Slow, 0);
+            }
+
+            PlayerAccount latecomer = crowded.Book.Join("late", "晚到");
+            int latecomerBalance = latecomer.Balance;
+            Check("同一匹馬效果疊滿後被拒且不扣錢",
+                crowded.TryUseItem("late", EffectKind.Slow, 0) == ItemRejection.HorseEffectsFull
+                && latecomer.Balance == latecomerBalance);
+            Check("效果疊滿時冷卻不會開始",
+                crowded.ItemCooldownRemaining("late", EffectKind.Slow) == 0.0);
+
+            GameConfig limitedConfig = DefaultConfig();
+            limitedConfig.Items.UsesPerRace = 1;
+            GameLoop limited = RacingLoop(limitedConfig, 54);
+            limited.Book.Join("p1", "阿明");
+            limited.TryUseItem("p1", EffectKind.Boost, 0);
+            Check("設定張數上限時用完就被拒",
+                limited.TryUseItem("p1", EffectKind.Slow, 1) == ItemRejection.NoUsesLeft);
+
+            HorseConfig[] lineup = RaceLineup.Create(config.Race, config.Roster, 55);
+            RaceEngine finishedRace = new RaceEngine(config.Race, lineup, 55);
+            finishedRace.RunToCompletion();
+            ItemShop shop = new ItemShop(config.Items);
+            Check("已衝線的馬不能再用券",
+                shop.TryUse(new PlayerAccount { PlayerId = "x", Balance = 100 }, EffectKind.Boost, 0, finishedRace)
+                == ItemRejection.HorseFinished);
+
+            // --- 換場 ---
+            GameLoop cycle = RacingLoop(DefaultConfig(), 56);
+            cycle.Book.Join("p1", "阿明");
+            cycle.TryUseItem("p1", EffectKind.Boost, 0);
+            cycle.SkipPhase(); // Racing -> Photo（直接跑完）
+            cycle.SkipPhase(); // Photo -> Settle
+            cycle.SkipPhase(); // Settle -> Idle
+            cycle.SkipPhase(); // Idle -> Betting
+            cycle.SkipPhase(); // Betting -> Racing
+            Check("新的一場冷卻歸零",
+                cycle.Phase == RacePhase.Racing && cycle.ItemCooldownRemaining("p1", EffectKind.Boost) == 0.0
+                && cycle.TryUseItem("p1", EffectKind.Boost, 0) == ItemRejection.None);
+
+            // --- 協定字串 ---
+            EffectKind parsed;
+            Check("協定字串 boost／slow 可解析",
+                HorseRace.Core.Protocol.ItemKinds.TryParse("boost", out parsed) && parsed == EffectKind.Boost
+                && HorseRace.Core.Protocol.ItemKinds.TryParse("slow", out parsed) && parsed == EffectKind.Slow);
+            Check("不認得的字串一律拒絕",
+                !HorseRace.Core.Protocol.ItemKinds.TryParse("BOOST", out parsed)
+                && !HorseRace.Core.Protocol.ItemKinds.TryParse(null, out parsed)
+                && !HorseRace.Core.Protocol.ItemKinds.TryParse("stop", out parsed));
+            Check("種類與字串可互轉",
+                HorseRace.Core.Protocol.ItemKinds.ToWire(EffectKind.Slow) == "slow"
+                && HorseRace.Core.Protocol.ItemKinds.ToWire(EffectKind.Boost) == "boost");
+        }
+
+        // ---------------------------------------------------------------- 每人步數上限
+
+        private static void StepGateTests()
+        {
+            Section("每人步數上限（StepGate）");
+
+            RaceConfig race = new RaceConfig { MaxStepsPerSecondPerPlayer = 10.0 };
+            StepGate gate = new StepGate(race);
+
+            Check("一開始最多允許一秒的額度", gate.Admit("a", 25, 0.0) == 10);
+            Check("半秒後只補回一半", gate.Admit("a", 10, 0.5) == 5);
+            Check("不同玩家各自計算", gate.Admit("b", 8, 0.5) == 8);
+            Check("零或負步數不計入", gate.Admit("a", 0, 1.0) == 0 && gate.Admit("a", -4, 1.0) == 0);
+
+            StepGate sustained = new StepGate(race);
+            int total = 0;
+            for (int tick = 0; tick <= 50; tick++)
+            {
+                total += sustained.Admit("spam", 3, tick * 0.1); // 每秒要求 30 步
+            }
+
+            Check("持續狂點 5 秒，計入量不超過上限（實得 " + total + " 步，上限約 60）",
+                total >= 55 && total <= 61);
+
+            StepGate unlimited = new StepGate(new RaceConfig { MaxStepsPerSecondPerPlayer = 0.0 });
+            Check("上限設 0 代表不限", unlimited.Admit("a", 999, 0.0) == 999);
+
+            sustained.Reset();
+            Check("Reset 後額度重新給滿", sustained.Admit("spam", 50, 0.0) == 10);
+
+            // --- 實際效果：一個人撐不滿，要好幾個人 ---
+            GameConfig config = DefaultConfig();
+            Check("全力門檻遠高於一個人的上限",
+                config.Race.StepsPerSecondForFullDrive >= config.Race.MaxStepsPerSecondPerPlayer * 2.5);
+
+            double solo = DriveLevelWithPlayers(1, 30);
+            Check("一個人拼命搖（每秒要求 30 步）也只推到約三分之一（實得 " + solo.ToString("F2") + "）",
+                solo > 0.2 && solo < 0.42);
+
+            double trio = DriveLevelWithPlayers(3, 10);
+            Check("三個人一起搖（每人每秒 10 步）接近全滿（實得 " + trio.ToString("F2") + "）",
+                trio > 0.85);
+
+            GameConfig notRacingConfig = DefaultConfig();
+            notRacingConfig.Race.WaitForHostToStart = false;
+            GameLoop notRacing = new GameLoop(notRacingConfig, 61);
+            Check("不在比賽中時步數不計入", notRacing.AddSteps("a", 0, 5) == 0);
+        }
+
+        /// <summary>指定人數一起替 0 號馬搖 5 秒，每人每秒要求指定步數，回傳最後的驅動強度。</summary>
+        private static double DriveLevelWithPlayers(int players, int stepsPerSecondEach)
+        {
+            GameLoop loop = RacingLoop(DefaultConfig(), 60);
+            const double dt = 0.1;
+            double owed = 0.0;
+            for (int tick = 0; tick < 50; tick++)
+            {
+                owed += stepsPerSecondEach * dt;
+                int steps = (int)owed;
+                owed -= steps;
+                for (int p = 0; p < players; p++)
+                {
+                    loop.AddSteps("p" + p, 0, steps);
+                }
+
+                loop.Tick(dt);
+            }
+
+            return loop.Race.DriveLevelOf(0);
         }
 
         // ---------------------------------------------------------------- 開賽前等待入場

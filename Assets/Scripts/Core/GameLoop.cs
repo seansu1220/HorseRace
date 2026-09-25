@@ -38,6 +38,8 @@ namespace HorseRace.Core
         private readonly GameConfig _config;
         private readonly DeterministicRandom _seedSource;
 
+        private readonly StepGate _stepGate;
+
         private double _phaseRemaining;
 
         public GameLoop(GameConfig config, int seed)
@@ -50,6 +52,8 @@ namespace HorseRace.Core
             _config = config;
             _seedSource = new DeterministicRandom(seed);
             Book = new BettingBook(config.Race);
+            Items = new ItemShop(config.Items);
+            _stepGate = new StepGate(config.Race);
             RaceNumber = 1;
 
             PrepareLineup();
@@ -86,6 +90,9 @@ namespace HorseRace.Core
         /// <summary>籌碼與注單的帳本。</summary>
         public BettingBook Book { get; private set; }
 
+        /// <summary>道具券的購買規則與冷卻。</summary>
+        public ItemShop Items { get; private set; }
+
         /// <summary>上一場的派彩結果。尚未結算過為 null。</summary>
         public SettlementResult LastSettlement { get; private set; }
 
@@ -101,6 +108,42 @@ namespace HorseRace.Core
             }
 
             return Book.TryPlaceBet(playerId, lane, amount, Lineup.Length);
+        }
+
+        /// <summary>
+        /// 代為購買並使用一張道具券。「什麼時候能用」由這裡把關，扣款與冷卻由 <see cref="ItemShop"/> 決定。
+        /// </summary>
+        public ItemRejection TryUseItem(string playerId, EffectKind kind, int lane)
+        {
+            if (Phase != RacePhase.Racing || Race == null)
+            {
+                return ItemRejection.NotRacing;
+            }
+
+            return Items.TryUse(Book.Find(playerId), kind, lane, Race);
+        }
+
+        /// <summary>這名玩家的這種券還要冷卻幾秒；不在比賽中時為 0。</summary>
+        public double ItemCooldownRemaining(string playerId, EffectKind kind)
+        {
+            return Race == null || Phase != RacePhase.Racing
+                ? 0.0
+                : Items.CooldownRemaining(playerId, kind, Race.ElapsedSeconds);
+        }
+
+        /// <summary>
+        /// 替某匹馬累加玩家搖出來的步數。每名玩家每秒有上限（見 <see cref="StepGate"/>），
+        /// 超出的部分直接丟掉。回傳實際計入的步數。
+        /// </summary>
+        public int AddSteps(string playerId, int lane, int stepCount)
+        {
+            if (Phase != RacePhase.Racing || Race == null)
+            {
+                return 0;
+            }
+
+            int admitted = _stepGate.Admit(playerId, stepCount, Race.ElapsedSeconds);
+            return admitted > 0 && Race.AddSteps(lane, admitted) ? admitted : 0;
         }
 
         /// <summary>賠率還沒算好。外部看到 true 就該去啟動背景計算。</summary>
@@ -232,6 +275,12 @@ namespace HorseRace.Core
             {
                 // 清掉上一場的注單並補發同情籌碼，必須在開放下注之前完成
                 Book.BeginRace();
+            }
+            else if (phase == RacePhase.Racing)
+            {
+                // 比賽時間從 0 重新起算，上一場的冷卻與步數額度都不能帶過來
+                Items.BeginRace();
+                _stepGate.Reset();
             }
             else if (phase == RacePhase.Settle)
             {

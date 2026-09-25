@@ -136,51 +136,65 @@ odds[i] = (1 - takeRate) / winRate[i]
 > 完全靜止會讓被針對的那匹馬幾乎必輸，押那匹馬的玩家等於被單方面剝奪，
 > 在 10～30 人的小場子裡很容易變成互相報復，體驗會壞掉。
 
-建議的初版配置（全部寫在 `ItemConfig`，現場可調）：
+目前的配置（全部寫在 `race.json` 的 `Items`，現場可調）：
 
 | 道具 | 效果 | 持續 | 冷卻 | 費用 |
 |---|---|---|---|---|
-| 加速 Boost | 目標馬速度 x1.35 | 2.0 s | 8 s | 50 籌碼 |
-| 絆腳 Slow | 目標馬速度 x0.60 | 2.0 s | 8 s | 50 籌碼 |
+| 加速券 Boost | 目標馬速度 ×1.35 | 2.0 s | 效果結束即可再買 | 5 籌碼 |
+| 減速券 Slow | 目標馬速度 ×0.60 | 2.0 s | 效果結束即可再買 | 5 籌碼 |
 
-附加規則：
+附加規則（`Core/ItemShop`）：
 
-- 只在 Racing 階段可用
-- 每人每場總共 2 次
-- 同一匹馬同時最多疊 2 層（避免全場圍剿一匹）
-- 大螢幕要有明顯的視覺與音效回饋，並顯示「誰對誰用了什麼」——這是全場最好笑的部分，不能藏起來
+- 只在 Racing 階段可用；任何券都能用在任何馬
+- 加速券與減速券**各自冷卻**；`CooldownSeconds = 0` 代表冷卻等於效果時間（效果一結束就能再買）
+- 每場張數不限（`UsesPerRace = 0`）；設正數即為上限
+- 同一匹馬同時最多疊 2 層（`MaxStacksPerHorse`，倍率相乘），避免全場圍剿一匹
+- 被拒絕（冷卻中、效果已滿、籌碼不足…）時一律不扣錢、不進冷卻
+- 冷卻用比賽的模擬時間計算，同樣的輸入序列得到同樣的結果
+
+手機介面：每張券下方各有一組選馬按鈕，選擇會保留（可隨時換）；點券即對選中的馬使用。
+買下後券面先全黑、再以 360 度順時針掃回原色，轉完一圈即可再買。
+
+### 體力驅動（搖手機）的難度
+
+- 全力門檻 `StepsPerSecondForFullDrive = 30`：一匹馬每秒要收到 30 步（所有替牠搖的人加總）才會滿
+- 每人每秒最多計入 `MaxStepsPerSecondPerPlayer = 10` 步（`Core/StepGate` 令牌桶），一個人最多推到約 1/3
+- 實測：一個人拼命搖 → 31%；三個人一起搖 → 90%
+- 全滿時目標速度 ×(1 + `MaxDriveBonus`) = ×1.6
 
 ---
 
 ## 5. 訊息協定
 
 WebSocket，JSON 文字幀。所有訊息都是 `{ "t": "<type>", ... }`。
+**正式定義在 `Assets/Scripts/Core/Protocol/Messages.cs`**，以下為範例。
 
 ### Host → Players
 
 ```jsonc
-// 階段變更
-{ "t":"phase", "phase":"betting", "endsAt":1757145600000, "race":12,
-  "horses":[{"id":0,"name":"閃電","color":"#E74C3C","odds":2.4}] }
+// 階段變更（lobby / idle / betting / racing / photo / settle）。附帶規則數值供手機顯示
+{ "t":"phase", "phase":"betting", "endsAt":1757145600000, "race":12, "players":18,
+  "horses":[{"id":0,"name":"赤焰","color":"#E74C3C","odds":3.4}],
+  "minBet":50, "itemCost":5, "itemSeconds":2, "itemCooldown":2, "boostX":1.35, "slowX":0.6 }
 
-// 賽況快照（賽中 10 Hz）
-{ "t":"snap", "tick":420, "p":[0.42,0.38,0.45,0.31], "r":[2,3,1,4] }
+// 賽況（賽中每秒 10 次）：驅動強度、進度、效果旗標（1 = 加速中、2 = 減速中）
+{ "t":"drive", "d":[0.31,0.05,0,0.12], "p":[0.42,0.47,0.35,0.39], "fx":[0,2,0,1] }
 
-// 個人錢包（只送給該玩家）
-{ "t":"wallet", "balance":850, "bets":[{"horse":0,"amount":100}],
-  "itemsLeft":2, "cooldownUntil":1757145612000 }
+// 個人錢包（帶 to，中繼站只送給該玩家）
+{ "t":"wallet", "to":"p1a2b3", "nick":"阿明", "balance":850, "bets":[{"lane":0,"amount":100}],
+  "payout":0, "delta":0, "reject":"", "boostCool":1.4, "slowCool":0 }
 
 // 結果
-{ "t":"result", "order":[2,0,3,1],
-  "payout":{"me":240,"delta":140}, "top":[{"name":"阿明","balance":1420}] }
+{ "t":"result", "order":[2,0,3,1], "top":[{"name":"阿明","balance":1420}] }
 ```
 
 ### Players → Host
 
 ```jsonc
-{ "t":"join", "nick":"阿明", "pid":"localStorage 保存的 id 或 null" }
-{ "t":"bet",  "horse":2, "amount":100 }
-{ "t":"item", "kind":"boost", "horse":0 }
+{ "t":"join", "pid":"p1a2b3", "nick":"阿明" }
+{ "t":"bet",  "pid":"p1a2b3", "nick":"阿明", "lane":2, "amount":100 }
+{ "t":"item", "pid":"p1a2b3", "nick":"阿明", "kind":"boost", "lane":0 }
+{ "t":"step", "pid":"p1a2b3", "lane":0, "n":2 }
 ```
 
 ### 協定紀律

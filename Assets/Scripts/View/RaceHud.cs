@@ -47,9 +47,10 @@ namespace HorseRace.View
         private Text[] _nameTags;
         private Text _connectionLabel;
 
-        private RawImage _qrImage;
-        private Text _joinUrlLabel;
         private Text _playerCountLabel;
+
+        /// <summary>目前的 QRCode 貼圖。顯示在等待入場畫面上，但生命週期由這裡管理。</summary>
+        private Texture2D _ownedQrCode;
         private Text[] _leaderRows;
         private Text _leaderEmptyLabel;
 
@@ -73,7 +74,7 @@ namespace HorseRace.View
             BuildTopBar();
             BuildHorseList(laneCount);
             BuildLeaderboard(laneCount);
-            BuildJoinPanel();
+            BuildStatusLine();
             BuildHint();
             BuildResultPanel(laneCount);
 
@@ -373,45 +374,22 @@ namespace HorseRace.View
             _resultPanel.gameObject.SetActive(false);
         }
 
-        private void BuildJoinPanel()
+        /// <summary>
+        /// 右上角一行小字：入場人數與連線狀態。
+        /// 掃碼入場改由開賽前的全螢幕畫面負責，比賽中只留給主持人看的狀態，不佔畫面。
+        /// </summary>
+        private void BuildStatusLine()
         {
-            RectTransform panel = UiFactory.Panel(_canvas.transform, "JoinPanel", UiFactory.PanelColor);
-            UiFactory.Place(panel, new Vector2(1f, 1f), new Vector2(1f, 1f),
-                new Vector2(-36f, -36f), new Vector2(360f, 452f));
+            _playerCountLabel = UiFactory.Label(_canvas.transform, "PlayerCount", "0 人已入場", 26,
+                TextAnchor.MiddleRight, UiFactory.TextColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)_playerCountLabel.transform, new Vector2(1f, 1f),
+                new Vector2(1f, 1f), new Vector2(-40f, -30f), new Vector2(420f, 36f));
 
-            Text title = UiFactory.Label(panel, "Title", "掃碼下注", 32,
-                TextAnchor.UpperCenter, UiFactory.TextColor, FontStyle.Bold);
-            UiFactory.Place((RectTransform)title.transform, new Vector2(0.5f, 1f),
-                new Vector2(0.5f, 1f), new Vector2(0f, -22f), new Vector2(320f, 44f));
-
-            // QRCode 底下墊白色：深色背景上的 QRCode 需要淺色靜區才掃得到
-            RectTransform frame = UiFactory.Panel(panel, "QrFrame", Color.white);
-            UiFactory.Place(frame, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                new Vector2(0f, -74f), new Vector2(248f, 248f));
-
-            RectTransform image = UiFactory.Node(frame, "QrImage");
-            UiFactory.Stretch(image, 8f, 8f, 8f, 8f);
-            _qrImage = image.gameObject.AddComponent<RawImage>();
-            _qrImage.raycastTarget = false;
-            _qrImage.enabled = false;
-
-            // 外網通道的網址很長（xxxx-xxxx-xxxx.trycloudflare.com），放不下時自動縮字
-            _joinUrlLabel = UiFactory.Label(panel, "JoinUrl", "", 22,
-                TextAnchor.MiddleCenter, UiFactory.TextColor);
-            UiFactory.Place((RectTransform)_joinUrlLabel.transform, new Vector2(0.5f, 1f),
-                new Vector2(0.5f, 1f), new Vector2(0f, -330f), new Vector2(330f, 34f));
-            UiFactory.ShrinkToFit(_joinUrlLabel, 12);
-
-            _playerCountLabel = UiFactory.Label(panel, "PlayerCount", "0 人已加入", 26,
-                TextAnchor.UpperCenter, UiFactory.AccentColor, FontStyle.Bold);
-            UiFactory.Place((RectTransform)_playerCountLabel.transform, new Vector2(0.5f, 1f),
-                new Vector2(0.5f, 1f), new Vector2(0f, -368f), new Vector2(320f, 36f));
-
-            _connectionLabel = UiFactory.Label(panel, "Connection", "尚未連線", 22,
-                TextAnchor.MiddleCenter, UiFactory.MutedTextColor, FontStyle.Bold);
-            UiFactory.Place((RectTransform)_connectionLabel.transform, new Vector2(0.5f, 1f),
-                new Vector2(0.5f, 1f), new Vector2(0f, -406f), new Vector2(320f, 34f));
-            UiFactory.ShrinkToFit(_connectionLabel, 14);
+            _connectionLabel = UiFactory.Label(_canvas.transform, "Connection", "尚未連線", 20,
+                TextAnchor.MiddleRight, UiFactory.MutedTextColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)_connectionLabel.transform, new Vector2(1f, 1f),
+                new Vector2(1f, 1f), new Vector2(-40f, -66f), new Vector2(520f, 30f));
+            UiFactory.ShrinkToFit(_connectionLabel, 12);
         }
 
         private void BuildLeaderboard(int laneCount)
@@ -446,38 +424,33 @@ namespace HorseRace.View
         }
 
         /// <summary>
-        /// 設定掃碼入場的資訊。貼圖傳 null 代表目前沒有可掃的網址（通道準備中或產生失敗），
-        /// 此時隱藏 QRCode、只顯示說明文字。HUD 接手貼圖的所有權，換掉時負責釋放。
+        /// 設定掃碼入場的資訊（顯示在等待入場畫面）。貼圖傳 null 代表目前沒有可掃的網址，
+        /// 此時只顯示說明文字。HUD 接手貼圖的所有權，換掉時負責釋放。
         /// </summary>
         public void SetJoinInfo(Texture2D qrCode, string caption)
         {
-            Texture previous = _qrImage.texture;
-            _qrImage.texture = qrCode;
-            _qrImage.enabled = qrCode != null;
-
-            if (previous != null && previous != qrCode)
+            if (_ownedQrCode != null && _ownedQrCode != qrCode)
             {
-                Destroy(previous);
+                Destroy(_ownedQrCode);
             }
 
-            _joinUrlLabel.text = string.IsNullOrEmpty(caption) ? "（無法取得網址）" : caption;
-
-            // 等待入場畫面共用同一張貼圖（不另外持有，釋放一律由這裡負責）
+            _ownedQrCode = qrCode;
             _lobby.SetJoinInfo(qrCode, caption);
         }
 
         private void OnDestroy()
         {
             // 程式生成的貼圖不會跟著 GameObject 一起回收，按 R 重開時要自己收
-            if (_qrImage != null && _qrImage.texture != null)
+            if (_ownedQrCode != null)
             {
-                Destroy(_qrImage.texture);
+                Destroy(_ownedQrCode);
+                _ownedQrCode = null;
             }
         }
 
         public void SetPlayerCount(int count)
         {
-            _playerCountLabel.text = count + " 人已加入";
+            _playerCountLabel.text = count + " 人已入場";
         }
 
         /// <summary>更新籌碼排行。</summary>

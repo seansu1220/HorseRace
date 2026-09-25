@@ -20,17 +20,26 @@ namespace HorseRace.Core
         /// <summary>效果持續秒數。</summary>
         public double DurationSeconds = 2.0;
 
-        /// <summary>同一名玩家兩次使用之間的冷卻秒數。</summary>
-        public double CooldownSeconds = 8.0;
+        /// <summary>
+        /// 同一名玩家、同一種券兩次購買之間的冷卻秒數（加速券與減速券各自計算）。
+        /// 設 0 代表與 <see cref="DurationSeconds"/> 相同：效果一結束就能再買。
+        /// </summary>
+        public double CooldownSeconds = 0.0;
 
-        /// <summary>每次使用消耗的籌碼。</summary>
-        public int Cost = 50;
+        /// <summary>每張券的價格（籌碼）。</summary>
+        public int Cost = 5;
 
-        /// <summary>每名玩家每場可使用的次數。</summary>
-        public int UsesPerRace = 2;
+        /// <summary>每名玩家每場最多可買幾張券；0 代表不限。</summary>
+        public int UsesPerRace = 0;
 
         /// <summary>同一匹馬身上最多能同時疊幾個效果，避免全場圍剿一匹。</summary>
         public int MaxStacksPerHorse = 2;
+
+        /// <summary>實際生效的冷卻秒數（把「0＝與效果時間相同」展開）。</summary>
+        public double EffectiveCooldownSeconds
+        {
+            get { return CooldownSeconds > 0.0 ? CooldownSeconds : DurationSeconds; }
+        }
 
         /// <summary>依道具種類取得對應的速度倍率。</summary>
         public double MultiplierFor(EffectKind kind)

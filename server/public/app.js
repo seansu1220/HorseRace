@@ -1,28 +1,41 @@
 'use strict';
 
 /**
- * 手機端。依大螢幕推來的階段切換畫面：進場 → 下注 → 出力 → 結果。
+ * 手機端。依大螢幕推來的階段切換畫面，每個階段只顯示當下能做的事：
+ * 進場 → 等待 → 下注 → 比賽（買券＋出力）→ 結果。
+ *
+ * 所有規則（能不能下注、券夠不夠錢、冷卻）都由大螢幕判定，這裡只負責顯示與送出操作；
+ * 規則數值（最低下注、券價、效果秒數）也由大螢幕在 phase 訊息中提供。
  *
  * 欄位名必須與 Assets/Scripts/Core/Protocol/Messages.cs 完全一致，
  * 協定變更時兩邊要同一個 commit 一起改。
  */
 
-// ---------------------------------------------------------------- 設定
+// ---------------------------------------------------------------- 設定（純介面，不影響規則）
 
 /** 每隔多久把累積的步數送出一次。太密會塞爆連線，太疏會讓力度條一頓一頓。 */
 const SEND_INTERVAL_MS = 200;
 
-/** 搖動偵測：超過基準線多少 m/s² 算一步。 */
-const SHAKE_THRESHOLD = 3.2;
+/**
+ * 搖動偵測：加速度偏離基準線多少 m/s² 算一步。
+ * 刻意設高：要真的用力甩才算，輕輕晃不算（大螢幕另有每人每秒 10 步的上限）。
+ */
+const SHAKE_THRESHOLD = 6.0;
 
-/** 兩步之間的最短間隔，用來濾掉單次晃動造成的連續觸發。 */
-const SHAKE_REFRACTORY_MS = 110;
+/** 兩步之間的最短間隔，濾掉單次晃動造成的連續觸發。 */
+const SHAKE_REFRACTORY_MS = 150;
 
 /** 重連退避上限。 */
 const RECONNECT_MAX_MS = 5000;
 
-/** 可選的下注金額。「全部」另外處理。 */
-const CHIP_AMOUNTS = [50, 100, 200, 500];
+/** 下注金額的快捷鍵。「全部」與自訂輸入另外處理。 */
+const PRESET_AMOUNTS = [50, 100, 500, 1000];
+
+/** 買券送出後多久沒回應就放棄等待（通常 0.2 秒內就會回來）。 */
+const ITEM_PENDING_TIMEOUT_MS = 4000;
+
+const KINDS = ['boost', 'slow'];
+const KIND_NAMES = { boost: '加速券', slow: '減速券' };
 
 // ---------------------------------------------------------------- 狀態
 
@@ -38,20 +51,31 @@ const state = {
   phase: '',
   endsAt: 0,
   raceNumber: 0,
+  players: 0,
   horses: [],
+  rules: { minBet: 50, itemCost: 5, itemSeconds: 2, itemCooldown: 2, boostX: 1.35, slowX: 0.6 },
 
   balance: 0,
   bets: [],
   delta: 0,
   payout: 0,
 
-  chip: CHIP_AMOUNTS[1],
+  amountMode: 'preset', // preset | all | custom
+  presetAmount: 100,
+  lastAction: '', // bet | item：錢包回來時，被拒的原因要顯示在哪裡
+
+  // 比賽中
+  progress: [],
+  effects: [],
+  driveLevels: [],
   driveLane: -1,
-  driveLevel: 0,
+  driveChosen: false,
+  pick: { boost: -1, slow: -1 },
+  pickChosen: { boost: false, slow: false },
+  cooldown: { boost: { until: 0, total: 1 }, slow: { until: 0, total: 1 } },
+  pending: { kind: '', lane: -1, at: 0 },
 
   pendingSteps: 0,
-  totalSteps: 0,
-  recentSteps: [],
 
   finishOrder: [],
   leaders: [],
@@ -65,18 +89,21 @@ function createId() {
 
 const dom = {};
 for (const id of [
-  'phaseLabel', 'countdown', 'balance', 'connection',
+  'phaseLabel', 'countdown', 'balanceBox', 'balance', 'connection',
   'joinScreen', 'nickInput', 'joinButton',
-  'betScreen', 'chipRow', 'betHorses', 'betNote', 'myBets',
-  'driveScreen', 'mineChip', 'mineName', 'changeHorse',
-  'meterFill', 'meterText', 'stepCount', 'stepRate',
-  'tapPad', 'motionButton', 'motionNote',
-  'pickScreen', 'pickHorses',
-  'resultScreen', 'resultTitle', 'resultDelta', 'resultOrder', 'leaderList',
-  'idleScreen', 'idleTitle', 'idleHint', 'idleLeader',
+  'waitScreen', 'waitWho', 'waitBalance', 'waitHint', 'waitCrowd', 'waitCount', 'waitListTitle', 'waitList',
+  'betScreen', 'chipTray', 'customBox', 'customAmount', 'oddsList', 'betNote',
+  'slipRace', 'slipLines', 'slipTotal',
+  'raceScreen', 'fieldList', 'boostTicket', 'slowTicket', 'boostEffect', 'slowEffect',
+  'boostPicks', 'slowPicks', 'drivePct', 'drivePicks', 'meterFill', 'tapPad', 'tapHint',
+  'motionButton', 'motionNote', 'toast',
+  'resultScreen', 'resultLabel', 'resultDelta', 'resultLine', 'resultOrder', 'leaderList',
 ]) {
   dom[id] = document.getElementById(id);
 }
+
+const tickets = { boost: dom.boostTicket, slow: dom.slowTicket };
+const pickContainers = { boost: dom.boostPicks, slow: dom.slowPicks };
 
 // ---------------------------------------------------------------- 連線
 
@@ -107,6 +134,7 @@ function connect() {
     dom.connection.classList.add('online');
     dom.connection.classList.remove('offline');
     if (state.nickname) sendJoin();
+    renderHeader();
   });
 
   socket.addEventListener('message', (event) => {
@@ -123,6 +151,7 @@ function connect() {
     state.connected = false;
     dom.connection.classList.remove('online');
     dom.connection.classList.add('offline');
+    renderHeader();
     scheduleReconnect();
   });
 
@@ -138,11 +167,12 @@ function scheduleReconnect() {
 }
 
 function send(payload) {
-  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return false;
   try {
     state.socket.send(JSON.stringify(payload));
+    return true;
   } catch (error) {
-    /* 送不出去就算了，下一次操作或重連會補上 */
+    return false; // 送不出去就算了，下一次操作或重連會補上
   }
 }
 
@@ -154,45 +184,45 @@ function sendJoin() {
 
 function handleMessage(message) {
   switch (message.t) {
-    case 'phase': {
-      const previousPhase = state.phase;
-      state.phase = message.phase || '';
-      state.endsAt = message.endsAt || 0;
-      state.raceNumber = message.race || 0;
-      state.horses = Array.isArray(message.horses) ? message.horses : [];
-
-      if (state.phase !== previousPhase) onPhaseChanged();
-      render();
+    case 'phase':
+      onPhaseMessage(message);
       break;
-    }
-
     case 'wallet':
-      state.joined = true;
-      state.balance = message.balance | 0;
-      state.bets = Array.isArray(message.bets) ? message.bets : [];
-      state.delta = message.delta | 0;
-      state.payout = message.payout | 0;
-      if (message.nick) {
-        state.nickname = message.nick;
-        localStorage.setItem('nick', state.nickname);
-      }
-      dom.betNote.textContent = message.reject || '';
-      render();
+      onWallet(message);
       break;
-
     case 'drive':
-      if (Array.isArray(message.d) && state.driveLane >= 0
-          && state.driveLane < message.d.length) {
-        state.driveLevel = message.d[state.driveLane];
-      }
+      onRaceSnapshot(message);
       break;
-
     case 'result':
       state.finishOrder = Array.isArray(message.order) ? message.order : [];
       state.leaders = Array.isArray(message.top) ? message.top : [];
       render();
       break;
   }
+}
+
+function onPhaseMessage(message) {
+  const previousPhase = state.phase;
+  const previousRace = state.raceNumber;
+
+  state.phase = message.phase || '';
+  state.endsAt = message.endsAt || 0;
+  state.raceNumber = message.race || 0;
+  state.players = message.players | 0;
+  if (Array.isArray(message.horses)) state.horses = message.horses;
+
+  const rules = state.rules;
+  if (message.minBet > 0) rules.minBet = message.minBet;
+  if (typeof message.itemCost === 'number' && message.itemCost >= 0) rules.itemCost = message.itemCost;
+  if (message.itemSeconds > 0) rules.itemSeconds = message.itemSeconds;
+  if (message.itemCooldown > 0) rules.itemCooldown = message.itemCooldown;
+  if (message.boostX > 0) rules.boostX = message.boostX;
+  if (message.slowX > 0) rules.slowX = message.slowX;
+
+  if (state.phase !== previousPhase || state.raceNumber !== previousRace) {
+    onPhaseChanged();
+  }
+  render();
 }
 
 function onPhaseChanged() {
@@ -202,36 +232,48 @@ function onPhaseChanged() {
   }
 
   if (state.phase === 'racing') {
-    // 預設推自己押最多的那匹，沒下注就讓他自己挑
-    state.driveLane = biggestBetLane();
-    state.driveLevel = 0;
-    state.totalSteps = 0;
-    state.recentSteps = [];
+    state.progress = state.horses.map(() => 0);
+    state.effects = state.horses.map(() => 0);
+    state.driveLevels = state.horses.map(() => 0);
+    for (const kind of KINDS) state.cooldown[kind].until = 0;
+    state.pending.kind = '';
+    chooseRaceDefaults();
+    buildRaceControls();
   }
 }
 
-function biggestBetLane() {
-  let best = -1;
-  let bestAmount = 0;
-  for (const bet of state.bets) {
-    if (bet.amount > bestAmount) {
-      bestAmount = bet.amount;
-      best = bet.lane;
-    }
+function onWallet(message) {
+  state.joined = true;
+  state.balance = message.balance | 0;
+  state.bets = Array.isArray(message.bets) ? message.bets : [];
+  state.delta = message.delta | 0;
+  state.payout = message.payout | 0;
+  if (message.nick) {
+    state.nickname = message.nick;
+    localStorage.setItem('nick', state.nickname);
   }
-  return best;
+
+  applyCooldowns(message);
+
+  const reject = message.reject || '';
+  if (state.lastAction === 'bet') {
+    dom.betNote.textContent = reject;
+  } else if (state.lastAction === 'item') {
+    finishItemRequest(reject);
+  }
+  state.lastAction = '';
+
+  render();
 }
 
-// ---------------------------------------------------------------- 畫面
+function onRaceSnapshot(message) {
+  if (Array.isArray(message.d)) state.driveLevels = message.d;
+  if (Array.isArray(message.p)) state.progress = message.p;
+  if (Array.isArray(message.fx)) state.effects = message.fx;
+  if (state.phase === 'racing') renderRace();
+}
 
-const PHASE_TITLES = {
-  lobby: '等待開賽',
-  idle: '準備下一場',
-  betting: '下注中',
-  racing: '比賽進行中',
-  photo: '衝線',
-  settle: '結算',
-};
+// ---------------------------------------------------------------- 小工具
 
 function horseById(lane) {
   return state.horses.find((horse) => horse.id === lane);
@@ -247,13 +289,62 @@ function horseColor(lane) {
   return horse && horse.color ? horse.color : '#888';
 }
 
+function formatChips(value) {
+  return Number(value || 0).toLocaleString('en-US');
+}
+
+function stakeOn(lane) {
+  let total = 0;
+  for (const bet of state.bets) {
+    if (bet.lane === lane) total += bet.amount;
+  }
+  return total;
+}
+
+function totalStaked() {
+  return state.bets.reduce((sum, bet) => sum + bet.amount, 0);
+}
+
+function biggestBetLane() {
+  let best = -1;
+  let bestAmount = 0;
+  for (const bet of state.bets) {
+    if (bet.amount > bestAmount) {
+      bestAmount = bet.amount;
+      best = bet.lane;
+    }
+  }
+  return best;
+}
+
+function isValidLane(lane) {
+  return lane >= 0 && lane < state.horses.length;
+}
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+// ---------------------------------------------------------------- 畫面切換
+
+const PHASE_TITLES = {
+  lobby: '等待開賽',
+  idle: '準備下一場',
+  betting: '下注中',
+  racing: '比賽中',
+  photo: '衝線',
+  settle: '結算',
+};
+
 function showScreen(name) {
   dom.joinScreen.hidden = name !== 'join';
+  dom.waitScreen.hidden = name !== 'wait';
   dom.betScreen.hidden = name !== 'bet';
-  dom.driveScreen.hidden = name !== 'drive';
-  dom.pickScreen.hidden = name !== 'pick';
+  dom.raceScreen.hidden = name !== 'race';
   dom.resultScreen.hidden = name !== 'result';
-  dom.idleScreen.hidden = name !== 'idle';
 }
 
 function render() {
@@ -269,266 +360,533 @@ function render() {
       showScreen('bet');
       renderBetting();
       break;
-
     case 'racing':
-      if (state.driveLane < 0) {
-        showScreen('pick');
-        renderPick();
-      } else {
-        showScreen('drive');
-        renderDrive();
-      }
+      showScreen('race');
+      renderRace();
       break;
-
     case 'photo':
     case 'settle':
       showScreen('result');
       renderResult();
       break;
-
     default:
-      showScreen('idle');
-      renderIdleText();
-      renderLeaderList(dom.idleLeader);
+      showScreen('wait');
+      renderWait();
       break;
-  }
-}
-
-/** 開賽前（lobby）與場次之間（idle）共用同一個畫面，只換說明文字。 */
-function renderIdleText() {
-  if (state.phase === 'lobby') {
-    dom.idleTitle.textContent = '等待主持人開始';
-    dom.idleHint.textContent = '人到齊後主持人會開始第一場，這裡會自動切到下注畫面。';
-  } else {
-    dom.idleTitle.textContent = '等待下一場';
-    dom.idleHint.textContent = '下注即將開始，準備好你的籌碼。';
   }
 }
 
 function renderHeader() {
   dom.phaseLabel.textContent = state.connected
-    ? (PHASE_TITLES[state.phase] || '等待大螢幕…')
+    ? (PHASE_TITLES[state.phase] || '賽馬場')
     : '重新連線中…';
 
   if (state.endsAt > 0) {
     const remaining = Math.max(0, Math.ceil((state.endsAt - Date.now()) / 1000));
-    dom.countdown.textContent = remaining > 0 ? String(remaining) : '';
+    dom.countdown.textContent = remaining > 0 ? `0:${String(remaining).padStart(2, '0')}` : '';
   } else {
     dom.countdown.textContent = '';
   }
 
-  dom.balance.textContent = state.joined ? `${state.balance} 籌碼` : '';
+  dom.balanceBox.hidden = !state.joined;
+  dom.balance.textContent = formatChips(state.balance);
 }
 
-function renderChipRow() {
-  if (dom.chipRow.dataset.built === '1') {
-    for (const button of dom.chipRow.children) {
-      const amount = button.dataset.amount === 'all' ? allInAmount() : Number(button.dataset.amount);
-      button.classList.toggle('selected', amount === state.chip && amount > 0);
-      button.disabled = amount <= 0 || amount > state.balance;
-    }
-    return;
-  }
+// ---------------------------------------------------------------- 等待
 
-  dom.chipRow.textContent = '';
-  const options = CHIP_AMOUNTS.map((amount) => ({ label: String(amount), amount }));
-  options.push({ label: '全部', amount: 'all' });
+function renderWait() {
+  const lobby = state.phase === 'lobby' || state.phase === '';
+  dom.waitWho.textContent = `${state.nickname || '你'}，你已入場`;
+  dom.waitBalance.textContent = formatChips(state.balance);
+  dom.waitHint.textContent = lobby
+    ? '主持人開始後，這裡會自動切到下注畫面。'
+    : '下一場即將開始，準備好你的籌碼。';
+
+  dom.waitCrowd.hidden = !lobby || state.players <= 0;
+  dom.waitCount.textContent = String(state.players);
+
+  dom.waitList.textContent = '';
+  if (lobby || state.leaders.length === 0) {
+    dom.waitListTitle.textContent = '今晚出賽';
+    state.horses.forEach((horse, index) => {
+      const item = el('div', 'item');
+      const swatch = el('span', 'swatch');
+      swatch.style.background = horse.color || '#888';
+      item.append(swatch, el('span', '', horse.name), el('span', 'side', `${index + 1} 閘`));
+      dom.waitList.append(item);
+    });
+  } else {
+    dom.waitListTitle.textContent = '籌碼排行';
+    state.leaders.forEach((entry, index) => {
+      const item = el('div', entry.name === state.nickname ? 'item me' : 'item');
+      item.append(el('span', 'n', String(index + 1)), el('span', '', entry.name),
+        el('span', 'side', formatChips(entry.balance)));
+      dom.waitList.append(item);
+    });
+  }
+}
+
+// ---------------------------------------------------------------- 下注
+
+function selectedAmount() {
+  if (state.amountMode === 'all') return state.balance;
+  if (state.amountMode === 'custom') return parseInt(dom.customAmount.value, 10) || 0;
+  return state.presetAmount;
+}
+
+function buildChipTray() {
+  if (dom.chipTray.childElementCount > 0) return;
+
+  const options = PRESET_AMOUNTS.map((amount) => ({ mode: 'preset', amount, label: formatChips(amount) }));
+  options.push({ mode: 'all', amount: 0, label: '全部' });
 
   for (const option of options) {
-    const button = document.createElement('button');
+    const button = el('button', option.mode === 'all' ? 'chip-btn all' : 'chip-btn', option.label);
     button.type = 'button';
-    button.className = 'chip-button';
-    button.textContent = option.label;
+    button.dataset.mode = option.mode;
     button.dataset.amount = String(option.amount);
     button.addEventListener('click', () => {
-      state.chip = option.amount === 'all' ? allInAmount() : option.amount;
-      renderChipRow();
+      state.amountMode = option.mode;
+      if (option.mode === 'preset') state.presetAmount = option.amount;
+      dom.customAmount.blur();
+      renderBetting();
     });
-    dom.chipRow.append(button);
+    dom.chipTray.append(button);
   }
-
-  dom.chipRow.dataset.built = '1';
-  renderChipRow();
 }
 
-function allInAmount() {
-  return state.balance;
+function renderChipTray() {
+  buildChipTray();
+  for (const button of dom.chipTray.children) {
+    const mode = button.dataset.mode;
+    const amount = mode === 'all' ? state.balance : Number(button.dataset.amount);
+    const selected = state.amountMode === mode && (mode === 'all' || state.presetAmount === amount);
+    button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    button.disabled = amount <= 0 || amount > state.balance;
+  }
+  dom.customBox.classList.toggle('active', state.amountMode === 'custom');
 }
 
 function renderBetting() {
-  renderChipRow();
+  renderChipRowAndOdds();
+  renderSlip();
+}
 
-  dom.betHorses.textContent = '';
+function renderChipRowAndOdds() {
+  renderChipTray();
+
+  dom.oddsList.textContent = '';
+  const amount = selectedAmount();
   for (const horse of state.horses) {
-    const staked = stakeOn(horse.id);
-
-    const button = document.createElement('button');
+    const button = el('button', 'odds');
     button.type = 'button';
-    button.className = 'horse-button';
-    button.disabled = state.chip <= 0 || state.chip > state.balance;
+    button.disabled = amount <= 0 || amount > state.balance;
 
-    const chip = document.createElement('span');
-    chip.className = 'chip';
-    chip.style.background = horse.color || '#888';
+    const stripe = el('span', 'stripe');
+    stripe.style.background = horse.color || '#888';
 
-    const name = document.createElement('span');
-    name.textContent = horse.name || `第 ${horse.id + 1} 號`;
+    const name = el('span', 'name', horse.name || `第 ${horse.id + 1} 號`);
+    const staked = stakeOn(horse.id);
+    if (staked > 0) name.append(el('small', '', `已押 ${formatChips(staked)}`));
 
-    const stakeLabel = document.createElement('span');
-    stakeLabel.className = 'horse-stake';
-    stakeLabel.textContent = staked > 0 ? `已押 ${staked}` : '';
+    const rate = el('span', 'rate', horse.odds > 0 ? horse.odds.toFixed(2) : '—');
+    rate.append(el('small', '', horse.odds > 0 ? '倍' : '計算中'));
 
-    const odds = document.createElement('span');
-    odds.className = 'horse-odds';
-    odds.textContent = horse.odds > 0 ? `${horse.odds.toFixed(2)} 倍` : '計算中';
-
-    button.append(chip, name, stakeLabel, odds);
+    button.append(stripe, name, rate);
     button.addEventListener('click', () => placeBet(horse.id));
-    dom.betHorses.append(button);
-  }
-
-  dom.myBets.textContent = '';
-  if (state.bets.length === 0) {
-    const line = document.createElement('div');
-    line.textContent = '尚未下注';
-    dom.myBets.append(line);
-  } else {
-    for (const bet of state.bets) {
-      const line = document.createElement('div');
-      line.textContent = `${horseName(bet.lane)}　${bet.amount} 籌碼`;
-      dom.myBets.append(line);
-    }
+    dom.oddsList.append(button);
   }
 }
 
-function stakeOn(lane) {
-  let total = 0;
-  for (const bet of state.bets) {
-    if (bet.lane === lane) total += bet.amount;
+function renderSlip() {
+  dom.slipRace.textContent = state.raceNumber > 0 ? `第 ${state.raceNumber} 場` : '';
+  dom.slipLines.textContent = '';
+
+  if (state.bets.length === 0) {
+    dom.slipLines.append(el('div', 'empty', '還沒下注，先選金額再點馬'));
   }
-  return total;
+
+  for (const bet of state.bets) {
+    const horse = horseById(bet.lane);
+    const line = el('div', 'line');
+    const pip = el('span', 'pip');
+    pip.style.background = horseColor(bet.lane);
+    const win = horse && horse.odds > 0 ? Math.floor(bet.amount * horse.odds) : 0;
+    line.append(pip, el('span', '', horseName(bet.lane)), el('span', 'amt', formatChips(bet.amount)),
+      el('span', 'win', win > 0 ? `中可得 ${formatChips(win)}` : ''));
+    dom.slipLines.append(line);
+  }
+
+  dom.slipTotal.textContent = formatChips(totalStaked());
 }
 
 function placeBet(lane) {
-  const amount = state.chip;
-  if (amount <= 0 || amount > state.balance) return;
+  const amount = selectedAmount();
+  if (amount <= 0) {
+    dom.betNote.textContent = '請先選擇或輸入金額';
+    return;
+  }
+  if (amount > state.balance) {
+    dom.betNote.textContent = '籌碼不足';
+    return;
+  }
+  if (amount < state.rules.minBet && amount !== state.balance) {
+    dom.betNote.textContent = `最低下注 ${formatChips(state.rules.minBet)}`;
+    return;
+  }
 
   dom.betNote.textContent = '';
+  state.lastAction = 'bet';
   send({ t: 'bet', pid: state.playerId, nick: state.nickname, lane, amount });
 }
 
-function renderPick() {
-  dom.pickHorses.textContent = '';
-  for (const horse of state.horses) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'horse-button';
+dom.customAmount.addEventListener('focus', () => {
+  state.amountMode = 'custom';
+  renderChipTray();
+});
 
-    const chip = document.createElement('span');
-    chip.className = 'chip';
-    chip.style.background = horse.color || '#888';
+dom.customAmount.addEventListener('input', () => {
+  // 只留數字：inputmode=numeric 在部分鍵盤仍可能打出其他字元
+  const digits = dom.customAmount.value.replace(/[^0-9]/g, '').slice(0, 9);
+  if (digits !== dom.customAmount.value) dom.customAmount.value = digits;
+  state.amountMode = 'custom';
+  renderChipRowAndOdds();
+});
 
-    const name = document.createElement('span');
-    name.textContent = horse.name || `第 ${horse.id + 1} 號`;
+dom.customAmount.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') dom.customAmount.blur();
+});
 
-    button.append(chip, name);
-    button.addEventListener('click', () => {
-      state.driveLane = horse.id;
-      render();
-    });
-    dom.pickHorses.append(button);
+// ---------------------------------------------------------------- 比賽：券與出力
+
+/**
+ * 每場開跑時的預設選擇。玩家自己點過的選擇會保留（「點了之後就維持」），
+ * 沒點過的才依本場注單重新推薦：加速給自己押最多的馬、減速給賠率最低的對手。
+ */
+function chooseRaceDefaults() {
+  const mine = biggestBetLane();
+
+  if (!state.driveChosen || !isValidLane(state.driveLane)) {
+    state.driveLane = mine;
+  }
+
+  if (!state.pickChosen.boost || !isValidLane(state.pick.boost)) {
+    state.pick.boost = isValidLane(mine) ? mine : 0;
+  }
+
+  if (!state.pickChosen.slow || !isValidLane(state.pick.slow)) {
+    state.pick.slow = favoriteRival(state.pick.boost);
   }
 }
 
-function renderDrive() {
-  dom.mineChip.style.background = horseColor(state.driveLane);
-  dom.mineName.textContent = horseName(state.driveLane);
-
-  const percent = Math.round(Math.max(0, Math.min(1, state.driveLevel)) * 100);
-  dom.meterFill.style.width = percent + '%';
-  dom.meterText.textContent = percent + '%';
-  dom.stepCount.textContent = String(state.totalSteps);
-
-  const now = performance.now();
-  state.recentSteps = state.recentSteps.filter((time) => now - time < 1000);
-  dom.stepRate.textContent = state.recentSteps.length.toFixed(1);
+function favoriteRival(excludeLane) {
+  let best = -1;
+  let bestOdds = Infinity;
+  for (const horse of state.horses) {
+    if (horse.id === excludeLane) continue;
+    const odds = horse.odds > 0 ? horse.odds : 99;
+    if (odds < bestOdds) {
+      bestOdds = odds;
+      best = horse.id;
+    }
+  }
+  return best >= 0 ? best : 0;
 }
 
-function renderResult() {
-  const title = state.phase === 'photo' ? '衝線！' : '結算';
-  dom.resultTitle.textContent = title;
+/** 比賽畫面的按鈕只在換場時建一次，之後只更新狀態，避免 10Hz 的賽況更新一直重建 DOM。 */
+function buildRaceControls() {
+  dom.fieldList.textContent = '';
+  for (const horse of state.horses) {
+    const row = el('div', 'row');
+    row.dataset.lane = String(horse.id);
+    const swatch = el('span', 'swatch');
+    swatch.style.background = horse.color || '#888';
+    const track = el('span', 'track');
+    const bar = el('i');
+    bar.style.background = horse.color || '#888';
+    track.append(bar);
+    row.append(el('span', 'rank', ''), swatch, el('span', 'nm', horse.name), track, el('span', 'fx'));
+    dom.fieldList.append(row);
+  }
 
-  if (state.phase === 'settle') {
-    if (state.delta > 0) {
-      dom.resultDelta.textContent = `+${state.delta}`;
-      dom.resultDelta.className = 'delta win';
-    } else if (state.delta < 0) {
-      dom.resultDelta.textContent = String(state.delta);
-      dom.resultDelta.className = 'delta lose';
-    } else {
-      dom.resultDelta.textContent = '沒有下注';
-      dom.resultDelta.className = 'delta flat';
+  for (const kind of KINDS) {
+    buildPicks(pickContainers[kind], (lane) => {
+      state.pick[kind] = lane;
+      state.pickChosen[kind] = true;
+      renderPicks();
+    });
+  }
+
+  buildPicks(dom.drivePicks, (lane) => {
+    state.driveLane = lane;
+    state.driveChosen = true;
+    renderRace();
+  });
+
+  const rules = state.rules;
+  dom.boostEffect.textContent = `速度 ×${rules.boostX.toFixed(2)} · ${trimNumber(rules.itemSeconds)} 秒`;
+  dom.slowEffect.textContent = `速度 ×${rules.slowX.toFixed(2)} · ${trimNumber(rules.itemSeconds)} 秒`;
+  for (const cost of document.querySelectorAll('.item-cost')) cost.textContent = formatChips(rules.itemCost);
+}
+
+function trimNumber(value) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function buildPicks(container, onPick) {
+  container.textContent = '';
+  for (const horse of state.horses) {
+    const button = el('button', 'pick');
+    button.type = 'button';
+    button.dataset.lane = String(horse.id);
+    const pip = el('span', 'pip');
+    pip.style.background = horse.color || '#888';
+    button.append(pip, el('span', '', horse.name));
+    button.addEventListener('click', () => onPick(horse.id));
+    container.append(button);
+  }
+}
+
+function renderPicks() {
+  const mark = (container, lane) => {
+    for (const button of container.children) {
+      button.setAttribute('aria-pressed', Number(button.dataset.lane) === lane ? 'true' : 'false');
     }
+  };
+  mark(dom.boostPicks, state.pick.boost);
+  mark(dom.slowPicks, state.pick.slow);
+  mark(dom.drivePicks, state.driveLane);
+}
+
+function renderRace() {
+  if (dom.fieldList.childElementCount !== state.horses.length) buildRaceControls();
+
+  renderField();
+  renderPicks();
+  renderTickets();
+
+  const level = isValidLane(state.driveLane) ? (state.driveLevels[state.driveLane] || 0) : 0;
+  const percent = Math.round(Math.max(0, Math.min(1, level)) * 100);
+  dom.meterFill.style.width = percent + '%';
+  dom.drivePct.textContent = percent + '%';
+
+  const canDrive = isValidLane(state.driveLane);
+  dom.tapPad.disabled = !canDrive;
+  dom.tapHint.textContent = canDrive
+    ? `替${horseName(state.driveLane)}出力 · 要多人一起搖才會滿`
+    : '先在上面選一匹要推的馬';
+}
+
+function renderField() {
+  const order = state.horses.map((horse) => horse.id)
+    .sort((a, b) => (state.progress[b] || 0) - (state.progress[a] || 0));
+
+  for (const row of dom.fieldList.children) {
+    const lane = Number(row.dataset.lane);
+    const rank = order.indexOf(lane);
+    row.style.order = String(rank);
+
+    const rankLabel = row.children[0];
+    rankLabel.textContent = String(rank + 1);
+    rankLabel.classList.toggle('first', rank === 0);
+
+    row.querySelector('.track i').style.width = Math.round((state.progress[lane] || 0) * 100) + '%';
+
+    const flags = state.effects[lane] | 0;
+    const fx = row.querySelector('.fx');
+    const wanted = `${flags & 1 ? 'u' : ''}${flags & 2 ? 'd' : ''}`;
+    if (fx.dataset.flags !== wanted) {
+      fx.dataset.flags = wanted;
+      fx.textContent = '';
+      if (flags & 1) fx.append(el('i', 'up', '▲'));
+      if (flags & 2) fx.append(el('i', 'down', '▼'));
+    }
+  }
+}
+
+// ---- 買券 ----
+
+function buyTicket(kind) {
+  if (state.phase !== 'racing' || isCooling(kind) || state.pending.kind) return;
+
+  const lane = state.pick[kind];
+  if (!isValidLane(lane)) {
+    showToast('先在券下面選一匹馬', true);
+    return;
+  }
+  if (state.balance < state.rules.itemCost) {
+    showToast('籌碼不足', true);
+    return;
+  }
+
+  const sent = send({ t: 'item', pid: state.playerId, nick: state.nickname, kind, lane });
+  if (!sent) {
+    showToast('連線中斷，請稍後再試', true);
+    return;
+  }
+
+  state.lastAction = 'item';
+  state.pending = { kind, lane, at: performance.now() };
+  startTicketAnimation();
+}
+
+function isCooling(kind) {
+  return state.cooldown[kind].until > performance.now();
+}
+
+/** 以大螢幕回報的剩餘冷卻為準：它是唯一權威，手機只負責把倒數畫出來。 */
+function applyCooldowns(message) {
+  const now = performance.now();
+  for (const kind of KINDS) {
+    const seconds = Number(message[`${kind}Cool`]) || 0;
+    const cooldown = state.cooldown[kind];
+    if (seconds > 0) {
+      // 新的一輪冷卻才重設總長，避免同一輪中途收到錢包時圓圈跳回起點
+      if (cooldown.until <= now) cooldown.total = Math.max(seconds, state.rules.itemCooldown) * 1000;
+      cooldown.until = now + seconds * 1000;
+    } else {
+      cooldown.until = 0;
+    }
+  }
+  if (KINDS.some(isCooling)) startTicketAnimation();
+}
+
+function finishItemRequest(reject) {
+  const { kind, lane } = state.pending;
+  state.pending = { kind: '', lane: -1, at: 0 };
+  if (!kind) return;
+
+  if (reject) {
+    showToast(reject, true);
   } else {
-    dom.resultDelta.textContent = '';
+    showToast(`已對 ${horseName(lane)} 使用${KIND_NAMES[kind]}，−${formatChips(state.rules.itemCost)}`);
+  }
+}
+
+let toastTimer = 0;
+/** 在券下方顯示買券結果。元素永遠佔位、只切換透明度，出現與消失時版面不會跳動。 */
+function showToast(text, bad) {
+  dom.toast.textContent = text;
+  dom.toast.className = bad ? 'toast show bad' : 'toast show';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { dom.toast.className = 'toast'; }, 2200);
+}
+
+/**
+ * 券面的冷卻動畫：買下的瞬間整張變黑、不能按；之後黑色以 360 度順時針退去，
+ * 轉完一圈（＝效果結束）恢復原色就能再買。用 requestAnimationFrame 逐幀畫 conic-gradient，
+ * 不依賴 CSS @property，較舊的 iOS Safari 也能正常顯示。
+ */
+let ticketFrame = 0;
+function startTicketAnimation() {
+  if (!ticketFrame) ticketFrame = requestAnimationFrame(animateTickets);
+}
+
+function animateTickets() {
+  ticketFrame = 0;
+  const now = performance.now();
+
+  if (state.pending.kind && now - state.pending.at > ITEM_PENDING_TIMEOUT_MS) {
+    state.pending = { kind: '', lane: -1, at: 0 };
+    state.lastAction = '';
+    showToast('大螢幕沒有回應，請再試一次', true);
+  }
+
+  const busy = renderTickets();
+  if (busy) ticketFrame = requestAnimationFrame(animateTickets);
+}
+
+/** 更新兩張券的狀態，回傳是否還有券在冷卻或等待回應（需要繼續動畫）。 */
+function renderTickets() {
+  const now = performance.now();
+  let busy = false;
+
+  for (const kind of KINDS) {
+    const ticket = tickets[kind];
+    const cover = ticket.querySelector('.cool');
+    const text = cover.querySelector('.cool-text');
+    const cooldown = state.cooldown[kind];
+    const remaining = cooldown.until - now;
+    const pending = state.pending.kind === kind;
+
+    if (pending) {
+      cover.hidden = false;
+      cover.style.background = 'rgba(8, 12, 10, .92)';
+      text.textContent = '…';
+      busy = true;
+    } else if (remaining > 0) {
+      const swept = Math.max(0, Math.min(360, (1 - remaining / cooldown.total) * 360));
+      cover.hidden = false;
+      cover.style.background =
+        `conic-gradient(transparent 0deg ${swept}deg, rgba(8, 12, 10, .92) ${swept}deg 360deg)`;
+      text.textContent = (remaining / 1000).toFixed(1);
+      busy = true;
+    } else {
+      cover.hidden = true;
+    }
+
+    const affordable = state.balance >= state.rules.itemCost;
+    ticket.disabled = pending || remaining > 0 || !affordable || state.phase !== 'racing';
+  }
+
+  return busy;
+}
+
+tickets.boost.addEventListener('click', () => buyTicket('boost'));
+tickets.slow.addEventListener('click', () => buyTicket('slow'));
+
+// ---------------------------------------------------------------- 結果
+
+function renderResult() {
+  const settled = state.phase === 'settle';
+  dom.resultLabel.textContent = settled ? '本場' : '衝線';
+
+  if (!settled) {
+    dom.resultDelta.textContent = '名次揭曉中…';
     dom.resultDelta.className = 'delta flat';
+    dom.resultLine.textContent = '';
+  } else if (totalStaked() === 0 && state.payout === 0 && state.delta === 0) {
+    dom.resultDelta.textContent = '這場沒有下注';
+    dom.resultDelta.className = 'delta flat';
+    dom.resultLine.textContent = '下一場記得下注！';
+  } else if (state.delta > 0) {
+    dom.resultDelta.textContent = `+${formatChips(state.delta)}`;
+    dom.resultDelta.className = 'delta win';
+    dom.resultLine.textContent = winnerLine(true);
+  } else {
+    dom.resultDelta.textContent = state.delta < 0 ? `−${formatChips(-state.delta)}` : '±0';
+    dom.resultDelta.className = 'delta lose';
+    dom.resultLine.textContent = winnerLine(false);
   }
 
   dom.resultOrder.textContent = '';
   state.finishOrder.forEach((lane, index) => {
-    const item = document.createElement('li');
-    if (index === 0) item.className = 'first';
-
-    const rank = document.createElement('span');
-    rank.className = 'rank';
-    rank.textContent = String(index + 1);
-
-    const chip = document.createElement('span');
-    chip.className = 'chip';
-    chip.style.background = horseColor(lane);
-
-    const name = document.createElement('span');
-    name.textContent = horseName(lane);
-
+    const place = el('div', index === 0 ? 'place first' : 'place');
+    const swatch = el('span', 'swatch');
+    swatch.style.background = horseColor(lane);
     const staked = stakeOn(lane);
-    const value = document.createElement('span');
-    value.className = 'value';
-    value.textContent = staked > 0 ? `你押 ${staked}` : '';
-
-    item.append(rank, chip, name, value);
-    dom.resultOrder.append(item);
+    place.append(el('span', 'pos', String(index + 1)), swatch, el('span', '', horseName(lane)),
+      el('span', 'mine', staked > 0 ? `你押 ${formatChips(staked)}` : ''));
+    dom.resultOrder.append(place);
   });
 
-  renderLeaderList(dom.leaderList);
+  dom.leaderList.textContent = '';
+  if (state.leaders.length === 0) {
+    dom.leaderList.append(el('div', 'empty', '還沒有紀錄'));
+  }
+  state.leaders.forEach((entry, index) => {
+    const you = entry.name === state.nickname;
+    const row = el('div', you ? 'entry you' : 'entry');
+    row.append(el('span', 'n', String(index + 1)), el('span', '', you ? `${entry.name}（你）` : entry.name),
+      el('span', 'v', formatChips(entry.balance)));
+    dom.leaderList.append(row);
+  });
 }
 
-function renderLeaderList(container) {
-  container.textContent = '';
-  if (state.leaders.length === 0) {
-    const item = document.createElement('li');
-    item.textContent = '還沒有紀錄';
-    container.append(item);
-    return;
-  }
-
-  state.leaders.forEach((entry, index) => {
-    const item = document.createElement('li');
-    if (index === 0) item.className = 'first';
-
-    const rank = document.createElement('span');
-    rank.className = 'rank';
-    rank.textContent = String(index + 1);
-
-    const name = document.createElement('span');
-    name.textContent = entry.name;
-
-    const value = document.createElement('span');
-    value.className = 'value';
-    value.textContent = String(entry.balance);
-
-    item.append(rank, name, value);
-    container.append(item);
-  });
+function winnerLine(won) {
+  const winner = state.finishOrder.length > 0 ? horseName(state.finishOrder[0]) : '';
+  if (!winner) return '';
+  return won ? `${winner}跑第一，你押中了` : `${winner}跑第一，下一場再接再厲`;
 }
 
 // ---------------------------------------------------------------- 進場
@@ -552,19 +910,11 @@ dom.nickInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') submitJoin();
 });
 
-dom.changeHorse.addEventListener('click', () => {
-  state.driveLane = -1;
-  state.driveLevel = 0;
-  render();
-});
-
-// ---------------------------------------------------------------- 步數輸入
+// ---------------------------------------------------------------- 出力（連打／搖動）
 
 function addStep() {
-  if (state.phase !== 'racing' || state.driveLane < 0) return;
+  if (state.phase !== 'racing' || !isValidLane(state.driveLane)) return;
   state.pendingSteps += 1;
-  state.totalSteps += 1;
-  state.recentSteps.push(performance.now());
 }
 
 // 連打。用 pointerdown 而不是 click，反應快一拍，也不會被點擊延遲拖到。
@@ -583,9 +933,7 @@ function onDeviceMotion(event) {
   const acceleration = event.accelerationIncludingGravity || event.acceleration;
   if (!acceleration) return;
 
-  const magnitude = Math.hypot(
-    acceleration.x || 0, acceleration.y || 0, acceleration.z || 0);
-
+  const magnitude = Math.hypot(acceleration.x || 0, acceleration.y || 0, acceleration.z || 0);
   baselineMagnitude += (magnitude - baselineMagnitude) * 0.1;
   const deviation = magnitude - baselineMagnitude;
   const now = performance.now();
@@ -603,12 +951,12 @@ function onDeviceMotion(event) {
 function enableMotion() {
   window.addEventListener('devicemotion', onDeviceMotion);
   dom.motionButton.hidden = true;
-  dom.motionNote.textContent = '動作感測器已開啟，用力搖手機就會加速。';
+  dom.motionNote.textContent = '';
 }
 
 function setupMotion() {
   if (typeof DeviceMotionEvent === 'undefined') {
-    dom.motionNote.textContent = '這台裝置沒有動作感測器，請用連打按鈕。';
+    dom.motionNote.textContent = '這台裝置沒有動作感測器，請用連打。';
     return;
   }
 
@@ -620,8 +968,7 @@ function setupMotion() {
   }
 
   if (location.protocol !== 'https:') {
-    dom.motionNote.textContent =
-      '目前不是 HTTPS 連線，iOS 不會開放動作感測器。請用連打按鈕。';
+    dom.motionNote.textContent = '目前不是 HTTPS 連線，iOS 不會開放動作感測器，請用連打。';
     return;
   }
 
@@ -632,11 +979,11 @@ function setupMotion() {
       if (result === 'granted') {
         enableMotion();
       } else {
-        dom.motionNote.textContent = '你拒絕了動作感測器權限，請改用連打按鈕。';
+        dom.motionNote.textContent = '你拒絕了動作感測器權限，請改用連打。';
         dom.motionButton.hidden = true;
       }
     } catch (error) {
-      dom.motionNote.textContent = '無法取得動作感測器權限，請改用連打按鈕。';
+      dom.motionNote.textContent = '無法取得動作感測器權限，請改用連打。';
       dom.motionButton.hidden = true;
     }
   });
@@ -645,16 +992,13 @@ function setupMotion() {
 // ---------------------------------------------------------------- 主迴圈
 
 setInterval(() => {
-  if (state.pendingSteps > 0 && state.driveLane >= 0 && state.phase === 'racing') {
-    send({ t: 'step', lane: state.driveLane, n: state.pendingSteps });
+  if (state.pendingSteps > 0 && isValidLane(state.driveLane) && state.phase === 'racing') {
+    send({ t: 'step', pid: state.playerId, lane: state.driveLane, n: state.pendingSteps });
     state.pendingSteps = 0;
   }
 }, SEND_INTERVAL_MS);
 
-setInterval(() => {
-  renderHeader();
-  if (state.phase === 'racing' && state.driveLane >= 0) renderDrive();
-}, 100);
+setInterval(renderHeader, 250);
 
 // 息屏回來後立刻重連並索取狀態，不要等退避計時器
 document.addEventListener('visibilitychange', () => {

@@ -17,6 +17,7 @@ namespace HorseRace.Core.Protocol
         public const string Join = "join";
         public const string Step = "step";
         public const string Bet = "bet";
+        public const string Item = "item";
 
         // 下行（大螢幕 → 手機）
         public const string Phase = "phase";
@@ -46,6 +47,40 @@ namespace HorseRace.Core.Protocol
 
         /// <summary>玩家識別碼，由手機端存在 localStorage。</summary>
         public string pid;
+
+        /// <summary>道具券種類（item 訊息用），見 <see cref="ItemKinds"/>。</summary>
+        public string kind;
+    }
+
+    /// <summary>道具券種類在協定上的字串，與 <see cref="EffectKind"/> 一對一。</summary>
+    public static class ItemKinds
+    {
+        public const string Boost = "boost";
+        public const string Slow = "slow";
+
+        /// <summary>解析手機送來的種類字串；不認得的一律拒絕，不猜。</summary>
+        public static bool TryParse(string wire, out EffectKind kind)
+        {
+            if (wire == Boost)
+            {
+                kind = EffectKind.Boost;
+                return true;
+            }
+
+            if (wire == Slow)
+            {
+                kind = EffectKind.Slow;
+                return true;
+            }
+
+            kind = EffectKind.Boost;
+            return false;
+        }
+
+        public static string ToWire(EffectKind kind)
+        {
+            return kind == EffectKind.Slow ? Slow : Boost;
+        }
     }
 
     /// <summary>單匹馬公開給手機端的資訊。</summary>
@@ -74,16 +109,55 @@ namespace HorseRace.Core.Protocol
 
         public int race;
         public HorseInfo[] horses;
+
+        /// <summary>目前入場人數。有人入場時會重播階段訊息，等待畫面的人數因此會跟著更新。</summary>
+        public int players;
+
+        // ---- 規則數值：手機只拿來顯示與播動畫，實際判定一律在大螢幕 ----
+
+        /// <summary>最低下注金額。</summary>
+        public int minBet;
+
+        /// <summary>每張道具券的價格。</summary>
+        public int itemCost;
+
+        /// <summary>道具效果持續秒數。</summary>
+        public double itemSeconds;
+
+        /// <summary>同一種券兩次購買之間的冷卻秒數（券面「轉一圈」的時間）。</summary>
+        public double itemCooldown;
+
+        /// <summary>加速券的速度倍率，例如 1.35。</summary>
+        public double boostX;
+
+        /// <summary>減速券的速度倍率，例如 0.6。</summary>
+        public double slowX;
     }
 
-    /// <summary>各匹馬目前的體力驅動強度 0~1，讓手機端能看到自己搖出來的效果。</summary>
+    /// <summary>
+    /// 比賽中的即時賽況（每秒數次），全部依閘號排列：
+    /// 驅動強度讓搖的人看到效果，進度與效果狀態讓手機畫出場上名次。
+    /// </summary>
     [Serializable]
     public sealed class DriveMessage
     {
         public string t = MessageType.Drive;
 
-        /// <summary>依閘號排列的驅動強度。</summary>
+        /// <summary>驅動強度 0~1（所有替這匹馬搖的人加總）。</summary>
         public float[] d;
+
+        /// <summary>賽程進度 0~1。</summary>
+        public float[] p;
+
+        /// <summary>身上生效中的道具：位元旗標，1 = 加速中、2 = 減速中，可同時成立。</summary>
+        public int[] fx;
+    }
+
+    /// <summary><see cref="DriveMessage.fx"/> 的位元定義。</summary>
+    public static class EffectFlags
+    {
+        public const int Boosted = 1;
+        public const int Slowed = 2;
     }
 
     /// <summary>一筆注。</summary>
@@ -116,8 +190,14 @@ namespace HorseRace.Core.Protocol
         /// <summary>上一場的淨輸贏，可為負數。</summary>
         public int delta;
 
-        /// <summary>下注被拒絕的原因；空字串代表沒有問題。呈現文字由手機端決定。</summary>
+        /// <summary>下注或買券被拒絕的原因；空字串代表沒有問題。</summary>
         public string reject;
+
+        /// <summary>加速券還要冷卻幾秒，0 代表可以買。手機據此畫券面的倒數。</summary>
+        public double boostCool;
+
+        /// <summary>減速券還要冷卻幾秒，0 代表可以買。</summary>
+        public double slowCool;
     }
 
     /// <summary>排行榜的一列。</summary>

@@ -3,90 +3,119 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <meta name="theme-color" content="#0d1017">
+  <meta name="theme-color" content="#14231b">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>賽馬場</title>
+  <!-- 只載入數字用的窄體字（很小）；中文用手機內建字型，網路慢也不會卡住畫面 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
   <header class="bar">
     <span id="phaseLabel" class="phase">連線中…</span>
-    <span id="countdown" class="countdown"></span>
-    <span id="balance" class="balance"></span>
+    <span id="countdown" class="clock"></span>
+    <span id="balanceBox" class="chips" hidden><span class="coin"></span><span id="balance">0</span></span>
     <span id="connection" class="dot offline" title="連線狀態"></span>
   </header>
 
-  <!-- 進場 -->
+  <!-- 1 進場：只有輸入暱稱 -->
   <section id="joinScreen" class="screen">
-    <h1>加入賽馬場</h1>
-    <p class="hint">取個名字，大螢幕的排行榜上會顯示。</p>
-    <input id="nickInput" class="nick-input" type="text" maxlength="10"
+    <div class="welcome">
+      <span class="label">今晚限定</span>
+      <h1>歡迎來到<br><em>賽馬場</em></h1>
+      <p class="hint">取個名字，大螢幕的排行榜會顯示它。</p>
+    </div>
+    <input id="nickInput" class="field" type="text" maxlength="10"
            placeholder="你的暱稱" autocomplete="off" enterkeyhint="go">
-    <button id="joinButton" class="primary-button" type="button">進場</button>
+    <button id="joinButton" class="primary" type="button">進場</button>
+    <p class="fine">籌碼只在今晚的遊戲中使用，不涉及真實金錢。</p>
   </section>
 
-  <!-- 下注 -->
+  <!-- 2 等待：開賽前（lobby）與場次之間（idle） -->
+  <section id="waitScreen" class="screen" hidden>
+    <div class="ready">
+      <span id="waitWho" class="who"></span>
+      <div class="bank"><b id="waitBalance">0</b><span class="hint">籌碼</span></div>
+    </div>
+    <div class="waiting"><span class="pulse"></span><span id="waitHint"></span></div>
+    <div id="waitCrowd" class="crowd"><b id="waitCount">0</b><span class="hint">人已入場</span></div>
+    <span id="waitListTitle" class="label">今晚出賽</span>
+    <div id="waitList" class="lineup"></div>
+  </section>
+
+  <!-- 3 下注 -->
   <section id="betScreen" class="screen" hidden>
-    <h1>下注</h1>
-    <p class="hint">先選金額，再點你要押的馬。</p>
-    <div id="chipRow" class="chip-row"></div>
-    <div id="betHorses" class="horse-list"></div>
+    <span class="label">押多少</span>
+    <div id="chipTray" class="chip-tray" role="group" aria-label="下注金額"></div>
+    <label id="customBox" class="custom">
+      <span>自訂</span>
+      <input id="customAmount" type="text" inputmode="numeric" pattern="[0-9]*"
+             placeholder="輸入金額" autocomplete="off" enterkeyhint="done">
+    </label>
+    <span class="label">點馬下注 · 同一匹可以加碼</span>
+    <div id="oddsList" class="odds-list"></div>
     <p id="betNote" class="note"></p>
-    <div id="myBets" class="my-bets"></div>
+    <div id="slip" class="slip">
+      <h3><span>我的注單</span><span id="slipRace"></span></h3>
+      <div id="slipLines"></div>
+      <div class="total"><span>本場已押</span><b id="slipTotal">0</b></div>
+    </div>
   </section>
 
-  <!-- 體力驅動 -->
-  <section id="driveScreen" class="screen" hidden>
-    <div class="mine">
-      <span id="mineChip" class="chip"></span>
-      <span id="mineName" class="mine-name">—</span>
-      <button id="changeHorse" class="link-button" type="button">換一匹</button>
+  <!-- 4 比賽中：買券＋出力 -->
+  <section id="raceScreen" class="screen race" hidden>
+    <span class="label">場上</span>
+    <div id="fieldList" class="field-list"></div>
+
+    <div class="tickets">
+      <div class="ticket-col">
+        <button id="boostTicket" class="ticket boost" type="button">
+          <span class="kind">加速券</span>
+          <span id="boostEffect" class="eff"></span>
+          <span class="cost"><span class="coin"></span><span class="item-cost"></span></span>
+          <span class="cool" hidden><span class="cool-text"></span></span>
+        </button>
+        <div id="boostPicks" class="picks" role="group" aria-label="加速券要給哪匹馬"></div>
+      </div>
+      <div class="ticket-col">
+        <button id="slowTicket" class="ticket slow" type="button">
+          <span class="kind">減速券</span>
+          <span id="slowEffect" class="eff"></span>
+          <span class="cost"><span class="coin"></span><span class="item-cost"></span></span>
+          <span class="cool" hidden><span class="cool-text"></span></span>
+        </button>
+        <div id="slowPicks" class="picks" role="group" aria-label="減速券要給哪匹馬"></div>
+      </div>
     </div>
 
-    <div class="meter">
-      <div id="meterFill" class="meter-fill"></div>
-      <span id="meterText" class="meter-text">0%</span>
+    <!-- 買券結果：固定佔位在券的下方，不遮住場上名次 -->
+    <p id="toast" class="toast" aria-live="polite"></p>
+
+    <div class="drive">
+      <div class="drive-head"><span class="label">出力對象</span><span id="drivePct">0%</span></div>
+      <div id="drivePicks" class="drive-picks" role="group" aria-label="要替哪匹馬出力"></div>
+      <div class="meter"><i id="meterFill"></i></div>
+      <button id="tapPad" class="tap" type="button">搖手機<small id="tapHint">或連打這裡</small></button>
+      <button id="motionButton" class="motion" type="button" hidden>開啟動作感測器</button>
+      <p id="motionNote" class="note small"></p>
     </div>
 
-    <div class="stats">
-      <div><strong id="stepCount">0</strong><span>總步數</span></div>
-      <div><strong id="stepRate">0.0</strong><span>步／秒</span></div>
-    </div>
-
-    <button id="tapPad" class="tap-pad" type="button">
-      <span class="tap-title">用力搖手機</span>
-      <span class="tap-sub">或連打這個按鈕</span>
-    </button>
-
-    <button id="motionButton" class="motion-button" type="button" hidden>
-      開啟動作感測器
-    </button>
-    <p id="motionNote" class="note"></p>
   </section>
 
-  <!-- 選要推哪匹（沒下注時） -->
-  <section id="pickScreen" class="screen" hidden>
-    <h1>要推哪一匹？</h1>
-    <p class="hint">你這場沒有下注，可以挑一匹來出力。</p>
-    <div id="pickHorses" class="horse-list"></div>
-  </section>
-
-  <!-- 結果 -->
+  <!-- 5 結果 -->
   <section id="resultScreen" class="screen" hidden>
-    <h1 id="resultTitle">結果</h1>
-    <p id="resultDelta" class="delta"></p>
-    <ol id="resultOrder" class="result-order"></ol>
-    <h2 class="section-title">籌碼排行</h2>
-    <ol id="leaderList" class="leader-list"></ol>
-  </section>
-
-  <!-- 待機 -->
-  <section id="idleScreen" class="screen" hidden>
-    <h1 id="idleTitle">等待下一場</h1>
-    <p id="idleHint" class="hint">下注即將開始，準備好你的籌碼。</p>
-    <h2 class="section-title">籌碼排行</h2>
-    <ol id="idleLeader" class="leader-list"></ol>
+    <div class="verdict">
+      <span id="resultLabel" class="label">本場</span>
+      <span id="resultDelta" class="delta"></span>
+      <p id="resultLine"></p>
+    </div>
+    <span class="label">名次</span>
+    <div id="resultOrder" class="podium"></div>
+    <span class="label">籌碼排行</span>
+    <div id="leaderList" class="board"></div>
   </section>
 
   <script src="app.js"></script>

@@ -403,12 +403,12 @@ namespace HorseRace.View
             switch (message.t)
             {
                 case MessageType.Step:
-                    // 只有比賽進行中才吃步數；引擎自己會擋掉無效閘號與已完賽的馬
-                    if (_loop.Phase == RacePhase.Racing && _loop.Race != null)
-                    {
-                        _loop.Race.AddSteps(message.lane, message.n);
-                    }
+                    // 階段、每人步數上限、無效閘號與已完賽的馬都由 GameLoop 把關
+                    _loop.AddSteps(message.pid, message.lane, message.n);
+                    break;
 
+                case MessageType.Item:
+                    HandleItem(message);
                     break;
 
                 case MessageType.Join:
@@ -464,6 +464,55 @@ namespace HorseRace.View
             }
         }
 
+        private void HandleItem(InboundMessage message)
+        {
+            EffectKind kind;
+            if (!ItemKinds.TryParse(message.kind, out kind))
+            {
+                // 不認得的種類只可能是舊版或被改過的手機頁，丟掉就好，不能影響賽事
+                return;
+            }
+
+            PlayerAccount account = _loop.Book.Find(message.pid);
+            if (account == null)
+            {
+                account = _loop.Book.Join(message.pid, message.nick);
+                if (account == null)
+                {
+                    return;
+                }
+            }
+
+            ItemRejection rejection = _loop.TryUseItem(message.pid, kind, message.lane);
+            SendWallet(account, rejection == ItemRejection.None ? null : DescribeItemRejection(rejection));
+        }
+
+        /// <summary>買券被拒的原因，給玩家看的措辭。</summary>
+        private static string DescribeItemRejection(ItemRejection rejection)
+        {
+            switch (rejection)
+            {
+                case ItemRejection.NotRacing:
+                    return "比賽中才能用券";
+                case ItemRejection.InvalidLane:
+                    return "沒有這匹馬";
+                case ItemRejection.HorseFinished:
+                    return "這匹馬已經衝線了";
+                case ItemRejection.CoolingDown:
+                    return "這張券還在冷卻";
+                case ItemRejection.NoUsesLeft:
+                    return "本場的券用完了";
+                case ItemRejection.HorseEffectsFull:
+                    return "這匹馬身上的效果已滿，等一下再試";
+                case ItemRejection.InsufficientChips:
+                    return "籌碼不足";
+                case ItemRejection.UnknownPlayer:
+                    return "找不到你的帳戶，請重新整理";
+                default:
+                    return "用券失敗";
+            }
+        }
+
         /// <summary>把個人錢包送回該名玩家。帶 to 欄位，中繼站會定向轉發。</summary>
         private void SendWallet(PlayerAccount account, string rejectReason)
         {
@@ -490,7 +539,9 @@ namespace HorseRace.View
                 bets = bets,
                 payout = account.LastPayout,
                 delta = account.LastDelta,
-                reject = rejectReason ?? string.Empty
+                reject = rejectReason ?? string.Empty,
+                boostCool = _loop.ItemCooldownRemaining(account.PlayerId, EffectKind.Boost),
+                slowCool = _loop.ItemCooldownRemaining(account.PlayerId, EffectKind.Slow)
             };
 
             _relay.Send(JsonUtility.ToJson(message));
@@ -564,7 +615,14 @@ namespace HorseRace.View
                 phase = _loop.Phase.ToString().ToLowerInvariant(),
                 endsAt = endsAt,
                 race = _loop.RaceNumber,
-                horses = horses
+                horses = horses,
+                players = _loop.Book.PlayerCount,
+                minBet = _config.Race.MinimumBet,
+                itemCost = _config.Items.Cost,
+                itemSeconds = _config.Items.DurationSeconds,
+                itemCooldown = _config.Items.EffectiveCooldownSeconds,
+                boostX = _config.Items.BoostMultiplier,
+                slowX = _config.Items.SlowMultiplier
             };
 
             _relay.Send(JsonUtility.ToJson(message));
@@ -587,18 +645,32 @@ namespace HorseRace.View
             _nextDrivePushTime = Time.time + (float)(1.0 / _config.Network.SnapshotsPerSecond);
 
             RaceEngine race = _loop.Race;
-            if (_driveMessage == null || _driveMessage.d == null
-                || _driveMessage.d.Length != race.HorseCount)
+            int count = race.HorseCount;
+            if (_driveMessage == null || _driveMessage.d == null || _driveMessage.d.Length != count)
             {
-                _driveMessage = new DriveMessage { d = new float[race.HorseCount] };
+                _driveMessage = new DriveMessage { d = new float[count], p = new float[count], fx = new int[count] };
             }
 
-            for (int lane = 0; lane < race.HorseCount; lane++)
+            for (int lane = 0; lane < count; lane++)
             {
+                HorseState horse = race.Horses[lane];
                 _driveMessage.d[lane] = (float)race.DriveLevelOf(lane);
+                _driveMessage.p[lane] = (float)horse.Progress01;
+                _driveMessage.fx[lane] = EffectFlagsOf(horse);
             }
 
             _relay.Send(JsonUtility.ToJson(_driveMessage));
+        }
+
+        private static int EffectFlagsOf(HorseState horse)
+        {
+            int flags = 0;
+            for (int i = 0; i < horse.Effects.Count; i++)
+            {
+                flags |= horse.Effects[i].Kind == EffectKind.Boost ? EffectFlags.Boosted : EffectFlags.Slowed;
+            }
+
+            return flags;
         }
 
         // ---- 賠率（背景計算）----

@@ -14,7 +14,8 @@
     "FormSpread": 0.045,
 
     "MaxDriveBonus": 0.6,
-    "StepsPerSecondForFullDrive": 6.0,
+    "StepsPerSecondForFullDrive": 30.0,
+    "MaxStepsPerSecondPerPlayer": 10.0,
     "DriveDecaySeconds": 1.0,
 
     "WaitForHostToStart": true,
@@ -36,9 +37,9 @@
     "BoostMultiplier": 1.35,
     "SlowMultiplier": 0.60,
     "DurationSeconds": 2.0,
-    "CooldownSeconds": 8.0,
-    "Cost": 50,
-    "UsesPerRace": 2,
+    "CooldownSeconds": 0.0,
+    "Cost": 5,
+    "UsesPerRace": 0,
     "MaxStacksPerHorse": 2
   },
 

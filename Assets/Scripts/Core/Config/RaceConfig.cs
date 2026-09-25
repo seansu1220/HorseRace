@@ -65,8 +65,18 @@ namespace HorseRace.Core
         /// </summary>
         public double MaxDriveBonus = 0.6;
 
-        /// <summary>每秒幾步算「全力」。超過這個步頻不會再更快，擋掉狂甩與機械輔助。</summary>
-        public double StepsPerSecondForFullDrive = 6.0;
+        /// <summary>
+        /// 一匹馬每秒總共要收到幾步才算「全力」（所有替牠搖的人加總）。
+        /// 設得比一個人的極限高很多，才會需要好幾個人一起搖：
+        /// 搭配 <see cref="MaxStepsPerSecondPerPlayer"/> = 10，一個人最多只能推到約三分之一。
+        /// </summary>
+        public double StepsPerSecondForFullDrive = 30.0;
+
+        /// <summary>
+        /// 每名玩家每秒最多計入幾步，超過的直接丟掉。擋掉雙手狂點、機械輔助或改過的手機頁，
+        /// 確保「一個人撐不滿，要大家一起搖」。0 代表不限。
+        /// </summary>
+        public double MaxStepsPerSecondPerPlayer = 10.0;
 
         /// <summary>
         /// 停止搖動後驅動強度的衰減時間常數（秒）。
@@ -145,7 +155,8 @@ namespace HorseRace.Core
             FormSpread = ConfigMath.Clamp(FormSpread, 0.0, 0.3);
 
             MaxDriveBonus = ConfigMath.Clamp(MaxDriveBonus, 0.0, 3.0);
-            StepsPerSecondForFullDrive = ConfigMath.Clamp(StepsPerSecondForFullDrive, 0.5, 30.0);
+            StepsPerSecondForFullDrive = ConfigMath.Clamp(StepsPerSecondForFullDrive, 0.5, 500.0);
+            MaxStepsPerSecondPerPlayer = ConfigMath.Clamp(MaxStepsPerSecondPerPlayer, 0.0, 100.0);
             DriveDecaySeconds = ConfigMath.Clamp(DriveDecaySeconds, 0.1, 10.0);
 
             IdleSeconds = ConfigMath.Clamp(IdleSeconds, 0.5, 120.0);
