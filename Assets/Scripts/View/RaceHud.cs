@@ -46,6 +46,11 @@ namespace HorseRace.View
 
         private ItemFeed _itemFeed;
 
+        /// <summary>右上角「掃碼加入」：開賽後晚到的人也能入場。</summary>
+        private RectTransform _joinCorner;
+        private RawImage _joinCornerQr;
+        private Text _joinCornerCaption;
+
         private RectTransform _nameTagLayer;
         private Text[] _nameTags;
         private Text _connectionLabel;
@@ -79,11 +84,24 @@ namespace HorseRace.View
             BuildLeaderboard(laneCount);
             BuildStatusLine();
             _itemFeed = ItemFeed.Build(_canvas.transform);
+            BuildJoinCorner();
             BuildHint();
             BuildResultPanel(laneCount);
 
             // 等待入場是全螢幕畫面，必須最後建立才會蓋在所有東西上面
             _lobby = LobbyScreen.Build(_canvas.transform);
+        }
+
+        /// <summary>顯示或隱藏右上角的「掃碼加入」。比賽進行中收起，讓出位置給用券播報。</summary>
+        public void ShowJoinCorner(bool visible)
+        {
+            _joinCorner.gameObject.SetActive(visible);
+
+            // 兩者在同一個位置：比賽一結束就收掉還在淡出的播報，免得疊在 QRCode 上
+            if (visible)
+            {
+                _itemFeed.Clear();
+            }
         }
 
         /// <summary>顯示或隱藏開賽前的「掃碼入場」全螢幕畫面。</summary>
@@ -410,6 +428,35 @@ namespace HorseRace.View
         }
 
         /// <summary>
+        /// 右上角狀態列下方的小 QRCode。和用券播報同一個位置，但兩者不會同時出現
+        /// （播報只在比賽中有內容，這塊只在比賽以外顯示）。
+        /// </summary>
+        private void BuildJoinCorner()
+        {
+            _joinCorner = UiFactory.Panel(_canvas.transform, "JoinCorner", UiFactory.PanelColor);
+            UiFactory.Place(_joinCorner, new Vector2(1f, 1f), new Vector2(1f, 1f),
+                new Vector2(-40f, -112f), new Vector2(250f, 290f));
+
+            // 白底就是 QRCode 的靜區，深色背景上沒有它手機掃不到
+            RectTransform frame = UiFactory.Panel(_joinCorner, "QrFrame", Color.white);
+            UiFactory.Place(frame, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(0f, -16f), new Vector2(218f, 218f));
+
+            RectTransform image = UiFactory.Node(frame, "QrImage");
+            UiFactory.Stretch(image, 10f, 10f, 10f, 10f);
+            _joinCornerQr = image.gameObject.AddComponent<RawImage>();
+            _joinCornerQr.raycastTarget = false;
+            _joinCornerQr.enabled = false;
+
+            _joinCornerCaption = UiFactory.Label(_joinCorner, "Caption", "連線準備中…", 28,
+                TextAnchor.MiddleCenter, UiFactory.AccentColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)_joinCornerCaption.transform, new Vector2(0.5f, 0f),
+                new Vector2(0.5f, 0f), new Vector2(0f, 10f), new Vector2(230f, 44f));
+
+            _joinCorner.gameObject.SetActive(false);
+        }
+
+        /// <summary>
         /// 右上角一行小字：入場人數與連線狀態。
         /// 掃碼入場改由開賽前的全螢幕畫面負責，比賽中只留給主持人看的狀態，不佔畫面。
         /// </summary>
@@ -471,6 +518,11 @@ namespace HorseRace.View
 
             _ownedQrCode = qrCode;
             _lobby.SetJoinInfo(qrCode, caption);
+
+            // 角落的小 QRCode 共用同一張貼圖；網址還沒準備好時整塊不顯示內容
+            _joinCornerQr.texture = qrCode;
+            _joinCornerQr.enabled = qrCode != null;
+            _joinCornerCaption.text = qrCode != null ? "掃碼加入" : "連線準備中…";
         }
 
         private void OnDestroy()

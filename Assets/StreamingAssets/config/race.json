@@ -45,7 +45,8 @@
     "ObstacleCost": 10,
     "ObstacleStunSeconds": 2.0,
     "ObstacleLeadMeters": 10.0,
-    "ObstacleImmunitySeconds": 3.0,
+    "ObstacleMinSpacingMeters": 1.0,
+    "ObstacleImmunitySeconds": 0.0,
     "ObstacleCooldownSeconds": 0.0
   },
 

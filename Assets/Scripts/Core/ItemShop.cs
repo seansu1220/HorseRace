@@ -44,10 +44,10 @@ namespace HorseRace.Core
         /// <summary>籌碼不夠。</summary>
         InsufficientChips = 8,
 
-        /// <summary>那匹馬前方已經有障礙物了。</summary>
-        ObstacleAlreadyPlaced = 9,
+        /// <summary>那個位置附近已經有障礙物（馬還沒往前跑夠遠）。</summary>
+        ObstacleTooClose = 9,
 
-        /// <summary>那匹馬正被絆住，或剛恢復跑動還在保護期。</summary>
+        /// <summary>那匹馬正被絆住，或剛恢復跑動還在保護期（只有設定了保護期才會出現）。</summary>
         HorseRecovering = 10,
 
         /// <summary>離終點太近，放不下障礙物。</summary>
@@ -263,19 +263,26 @@ namespace HorseRace.Core
         {
             HorseState horse = race.Horses[lane];
 
-            if (horse.ObstacleAt != HorseState.NoObstacle)
+            if (_config.ObstacleImmunitySeconds > 0.0)
             {
-                return ItemRejection.ObstacleAlreadyPlaced;
+                bool recovering = horse.StunRemaining > 0.0
+                                  || race.ElapsedSeconds - horse.StunEndedAt < _config.ObstacleImmunitySeconds;
+                if (recovering)
+                {
+                    return ItemRejection.HorseRecovering;
+                }
             }
 
-            bool recovering = horse.StunRemaining > 0.0
-                              || race.ElapsedSeconds - horse.StunEndedAt < _config.ObstacleImmunitySeconds;
-            if (recovering)
+            double position = ObstaclePositionFor(horse);
+            foreach (ObstacleMark existing in horse.Obstacles)
             {
-                return ItemRejection.HorseRecovering;
+                if (System.Math.Abs(existing.Position - position) < _config.ObstacleMinSpacingMeters)
+                {
+                    return ItemRejection.ObstacleTooClose;
+                }
             }
 
-            return ObstaclePositionFor(horse) >= race.TrackLengthMeters - FinishGuardMeters
+            return position >= race.TrackLengthMeters - FinishGuardMeters
                 ? ItemRejection.TooCloseToFinish
                 : ItemRejection.None;
         }

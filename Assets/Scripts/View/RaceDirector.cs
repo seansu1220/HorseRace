@@ -188,11 +188,20 @@ namespace HorseRace.View
                     LogFinishOrder();
                     break;
 
+                case RacePhase.Betting:
+                    // GameLoop 剛清空注單並補發同情籌碼；不主動送錢包的話，
+                    // 手機會一直顯示上一場的注單，被補的籌碼也看不到
+                    SendAllWallets();
+                    break;
+
                 case RacePhase.Settle:
                     // GameLoop 已在進入本階段時完成派彩，這裡只負責把結果送出去
                     BroadcastSettlement();
                     break;
             }
+
+            // 比賽中收起角落的 QRCode，讓出位置給用券播報；其他時候讓晚到的人隨時能掃
+            _hud.ShowJoinCorner(phase != RacePhase.Racing && phase != RacePhase.Lobby);
 
             BroadcastPhase();
         }
@@ -530,8 +539,8 @@ namespace HorseRace.View
                     return "本場的券用完了";
                 case ItemRejection.HorseEffectsFull:
                     return "這匹馬身上的效果已滿，等一下再試";
-                case ItemRejection.ObstacleAlreadyPlaced:
-                    return "這匹馬前方已經有障礙物了";
+                case ItemRejection.ObstacleTooClose:
+                    return "這個位置已經有障礙物，等馬再往前跑一點";
                 case ItemRejection.HorseRecovering:
                     return "這匹馬剛被絆倒，等一下再放";
                 case ItemRejection.TooCloseToFinish:
@@ -588,11 +597,7 @@ namespace HorseRace.View
                 return;
             }
 
-            IReadOnlyList<PlayerAccount> players = _loop.Book.Players;
-            for (int i = 0; i < players.Count; i++)
-            {
-                SendWallet(players[i], null);
-            }
+            SendAllWallets();
 
             List<PlayerAccount> ranked = _loop.Book.TopPlayers(LeaderboardSize);
             LeaderEntry[] top = new LeaderEntry[ranked.Count];
@@ -613,6 +618,16 @@ namespace HorseRace.View
         }
 
         private const int LeaderboardSize = 5;
+
+        /// <summary>把每個人的錢包各自送回去（帶 to，中繼站只轉給本人）。</summary>
+        private void SendAllWallets()
+        {
+            IReadOnlyList<PlayerAccount> players = _loop.Book.Players;
+            for (int i = 0; i < players.Count; i++)
+            {
+                SendWallet(players[i], null);
+            }
+        }
 
         /// <summary>依名次排列的完賽秒數，與 FinishOrder 一一對應。</summary>
         private float[] FinishTimesInOrder()
@@ -749,7 +764,7 @@ namespace HorseRace.View
                 flags |= EffectFlags.Stunned;
             }
 
-            if (horse.ObstacleAt != HorseState.NoObstacle)
+            if (horse.Obstacles.Count > 0)
             {
                 flags |= EffectFlags.ObstacleAhead;
             }

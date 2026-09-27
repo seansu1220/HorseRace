@@ -1022,19 +1022,25 @@ namespace HorseRace.Tests
             Check("各種券的價格", items.CostOf(ItemKind.Obstacle) == 10 && items.CostOf(ItemKind.Boost) == items.Cost);
             Check("障礙券冷卻預設等於停住秒數",
                 Math.Abs(items.CooldownOf(ItemKind.Obstacle) - items.ObstacleStunSeconds) < 1e-12);
+            Check("障礙物最小間距預設 1 公尺、保護期預設關閉",
+                Math.Abs(items.ObstacleMinSpacingMeters - 1.0) < 1e-12 && items.ObstacleImmunitySeconds == 0.0);
 
-            // --- 引擎：撞到停住、之後重新起跑 ---
+            // --- 引擎：可以排好幾個，依距離由近到遠 ---
             HorseConfig[] lineup = RaceLineup.Create(config.Race, config.Roster, 71);
             RaceEngine engine = new RaceEngine(config.Race, lineup, 71);
             AdvanceBySeconds(engine, 2.0);
             double at = engine.Horses[0].Distance + 10.0;
-            Check("可以在馬前方放障礙物", engine.PlaceObstacle(0, at, 2.0));
-            Check("同一匹馬前方同時只能有一個", !engine.PlaceObstacle(0, at + 5.0, 2.0));
+            Check("可以在馬前方放障礙物", engine.PlaceObstacle(0, at + 6.0, 2.0));
+            Check("同一匹馬前方可以再放一個", engine.PlaceObstacle(0, at, 2.0));
+            Check("障礙物依距離由近到遠排列",
+                engine.Horses[0].Obstacles.Count == 2
+                && Math.Abs(engine.Horses[0].Obstacles[0].Position - at) < 1e-9);
             Check("不能放在馬身後", !engine.PlaceObstacle(1, engine.Horses[1].Distance - 1.0, 2.0));
             Check("不能放在終點之後", !engine.PlaceObstacle(2, config.Race.TrackLengthMeters + 5.0, 2.0));
 
             RaceEngine copy = engine.Clone();
-            Check("Clone 保留障礙物", Math.Abs(copy.Horses[0].ObstacleAt - at) < 1e-9);
+            Check("Clone 保留障礙物", copy.Horses[0].Obstacles.Count == 2
+                && Math.Abs(copy.Horses[0].Obstacles[1].Position - (at + 6.0)) < 1e-9);
 
             double hitTime = -1.0;
             for (int step = 0; step < 200 && hitTime < 0.0; step++)
@@ -1047,17 +1053,25 @@ namespace HorseRace.Tests
             }
 
             HorseState stopped = engine.Horses[0];
-            Check("撞到障礙物後停在障礙物位置", hitTime > 0.0 && Math.Abs(stopped.Distance - at) < 1e-9);
-            Check("撞到後速度歸零、障礙物消失、次數 +1",
-                stopped.Speed == 0.0 && stopped.ObstacleAt == HorseState.NoObstacle && stopped.ObstacleHits == 1);
+            Check("撞到最近的障礙物，停在它的位置", hitTime > 0.0 && Math.Abs(stopped.Distance - at) < 1e-9);
+            Check("只消耗撞到的那一個，後面的還在",
+                stopped.Speed == 0.0 && stopped.Obstacles.Count == 1 && stopped.ObstacleHits == 1);
+            Check("複本不受本體撞擊影響", copy.Horses[0].Obstacles.Count == 2);
 
             AdvanceBySeconds(engine, 1.5);
             Check("停住期間完全不動", Math.Abs(engine.Horses[0].Distance - at) < 1e-9);
 
-            AdvanceBySeconds(engine, 1.5);
-            Check("停住時間結束後重新起跑",
-                engine.Horses[0].Distance > at && engine.Horses[0].StunRemaining == 0.0
-                && engine.Horses[0].StunEndedAt > hitTime);
+            // 恢復後會再撞上第二個
+            bool hitSecond = false;
+            for (int step = 0; step < 400 && !hitSecond; step++)
+            {
+                engine.Advance(0.02);
+                hitSecond = engine.Horses[0].ObstacleHits == 2;
+            }
+
+            Check("停住結束後重新起跑，並撞上後面的障礙物",
+                hitSecond && Math.Abs(engine.Horses[0].Distance - (at + 6.0)) < 1e-9
+                && engine.Horses[0].Obstacles.Count == 0);
 
             // --- 只影響被絆住的那一匹 ---
             RaceEngine calm = new RaceEngine(config.Race, lineup, 72);
@@ -1076,7 +1090,13 @@ namespace HorseRace.Tests
             Check("障礙物不會改變其他馬的跑法（共用亂數照常推進）", othersSame);
             Check("被絆住的馬明顯落後", tripped.Horses[0].Distance < calm.Horses[0].Distance - 10.0);
 
-            // --- 購買規則 ---
+            RaceEngine finishing = new RaceEngine(config.Race, lineup, 75);
+            finishing.PlaceObstacle(3, config.Race.TrackLengthMeters - 0.5, 2.0);
+            finishing.Horses[3].Distance = config.Race.TrackLengthMeters - 0.1;
+            finishing.RunToCompletion();
+            Check("衝線後沒撞到的障礙物會撤掉", finishing.Horses[3].Obstacles.Count == 0);
+
+            // --- 購買規則：同一點不能重複放 ---
             GameLoop loop = RacingLoop(DefaultConfig(), 73);
             PlayerAccount alice = loop.Book.Join("a", "阿明");
             PlayerAccount bob = loop.Book.Join("b", "小美");
@@ -1085,35 +1105,63 @@ namespace HorseRace.Tests
             Check("買障礙券成功", loop.TryUseItem("a", ItemKind.Obstacle, 0) == ItemRejection.None);
             Check("扣 10 籌碼", alice.Balance == before - 10);
             Check("障礙物放在那匹馬前方約 10 公尺",
-                Math.Abs(loop.Race.Horses[0].ObstacleAt - loop.Race.Horses[0].Distance - items.ObstacleLeadMeters) < 0.5);
-            Check("前方已有障礙物時別人不能再放",
-                loop.TryUseItem("b", ItemKind.Obstacle, 0) == ItemRejection.ObstacleAlreadyPlaced
+                Math.Abs(loop.Race.Horses[0].Obstacles[0].Position - loop.Race.Horses[0].Distance - items.ObstacleLeadMeters) < 0.5);
+            Check("馬還沒往前跑 1 公尺，別人不能在同一點再放（不扣錢）",
+                loop.TryUseItem("b", ItemKind.Obstacle, 0) == ItemRejection.ObstacleTooClose
                 && bob.Balance == before);
+            Check("不同的馬不受影響", loop.TryUseItem("b", ItemKind.Obstacle, 1) == ItemRejection.None);
             Check("同一人冷卻中不能再買障礙券",
-                loop.TryUseItem("a", ItemKind.Obstacle, 1) == ItemRejection.CoolingDown);
-            Check("障礙券冷卻不影響加速券", loop.TryUseItem("a", ItemKind.Boost, 1) == ItemRejection.None);
+                loop.TryUseItem("a", ItemKind.Obstacle, 2) == ItemRejection.CoolingDown);
+            Check("障礙券冷卻不影響加速券", loop.TryUseItem("a", ItemKind.Boost, 2) == ItemRejection.None);
 
-            for (int i = 0; i < 100 && loop.Race.Horses[0].StunRemaining <= 0.0; i++)
+            PlayerAccount carol = loop.Book.Join("c", "老王");
+            double placedFrom = loop.Race.Horses[0].Distance;
+            for (int i = 0; i < 40 && loop.Race.Horses[0].Distance - placedFrom < items.ObstacleMinSpacingMeters + 0.2; i++)
             {
-                loop.Tick(0.05);
+                loop.Tick(0.02);
             }
 
-            Check("被絆住期間不能再放障礙物",
+            Check("馬往前跑超過 1 公尺後可以再放",
+                loop.TryUseItem("c", ItemKind.Obstacle, 0) == ItemRejection.None
+                && loop.Race.Horses[0].Obstacles.Count == 2 && carol.Balance == before - 10);
+
+            // 被絆住時馬不動，放下的位置不變，所以不能再放
+            for (int i = 0; i < 200 && loop.Race.Horses[0].StunRemaining <= 0.0; i++)
+            {
+                loop.Tick(0.02);
+            }
+
+            loop.Book.Join("d", "阿德");
+            loop.Book.Join("e", "阿妹"); // 沒買過券的人，排除冷卻的干擾
+            Check("被絆住期間可以在馬前方放新的障礙物",
                 loop.Race.Horses[0].StunRemaining > 0.0
-                && loop.TryUseItem("b", ItemKind.Obstacle, 0) == ItemRejection.HorseRecovering);
+                && loop.TryUseItem("d", ItemKind.Obstacle, 0) == ItemRejection.None);
+            Check("被絆住期間馬沒前進，第二張放不下同一點",
+                loop.TryUseItem("e", ItemKind.Obstacle, 0) == ItemRejection.ObstacleTooClose);
 
-            AdvanceLoop(loop, items.ObstacleStunSeconds + 0.5);
-            Check("剛恢復跑動的保護期內不能放",
-                loop.Race.Horses[0].StunRemaining == 0.0
-                && loop.TryUseItem("b", ItemKind.Obstacle, 0) == ItemRejection.HorseRecovering);
+            // --- 保護期（預設關閉，打開時生效）---
+            GameConfig guarded = DefaultConfig();
+            guarded.Items.ObstacleImmunitySeconds = 3.0;
+            GameLoop guardedLoop = RacingLoop(guarded, 76);
+            guardedLoop.Book.Join("a", "阿明");
+            guardedLoop.Book.Join("b", "小美");
+            guardedLoop.TryUseItem("a", ItemKind.Obstacle, 0);
+            for (int i = 0; i < 200 && guardedLoop.Race.Horses[0].StunRemaining <= 0.0; i++)
+            {
+                guardedLoop.Tick(0.02);
+            }
 
-            AdvanceLoop(loop, items.ObstacleImmunitySeconds);
-            Check("保護期過後可以再放", loop.TryUseItem("b", ItemKind.Obstacle, 0) == ItemRejection.None);
+            Check("打開保護期時，被絆住期間不能放",
+                guardedLoop.TryUseItem("b", ItemKind.Obstacle, 0) == ItemRejection.HorseRecovering);
+            AdvanceLoop(guardedLoop, guarded.Items.ObstacleStunSeconds + 0.5);
+            Check("打開保護期時，剛恢復跑動也不能放",
+                guardedLoop.TryUseItem("b", ItemKind.Obstacle, 0) == ItemRejection.HorseRecovering);
+            AdvanceLoop(guardedLoop, guarded.Items.ObstacleImmunitySeconds);
+            Check("保護期過後可以再放", guardedLoop.TryUseItem("b", ItemKind.Obstacle, 0) == ItemRejection.None);
 
             GameLoop nearEnd = RacingLoop(DefaultConfig(), 74);
             nearEnd.Book.Join("a", "阿明");
-            HorseState leader = nearEnd.Race.Horses[2];
-            leader.Distance = config.Race.TrackLengthMeters - 3.0;
+            nearEnd.Race.Horses[2].Distance = config.Race.TrackLengthMeters - 3.0;
             Check("離終點太近時不能放",
                 nearEnd.TryUseItem("a", ItemKind.Obstacle, 2) == ItemRejection.TooCloseToFinish);
 

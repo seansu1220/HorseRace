@@ -265,6 +265,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
 .ticket .eff { font-family: var(--num); font-size: 13px; font-weight: 600; color: var(--ink-muted); white-space: nowrap; overflow: hidden; }
 .ticket .cost { font-family: var(--num); font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 5px; }
 .ticket:active { transform: translateY(1px); }
+/* 選中的券：浮起並加上該券顏色的外框 */
+.ticket[aria-pressed="true"] { transform: translateY(-3px); }
+.ticket.boost[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--boost), 0 8px 18px rgba(0, 0, 0, .4); }
+.ticket.slow[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--slow), 0 8px 18px rgba(0, 0, 0, .4); }
+.ticket.obstacle[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--obstacle), 0 8px 18px rgba(0, 0, 0, .4); }
 .ticket:disabled { cursor: not-allowed; }
 /* 冷卻：先全黑，再以 360 度掃回原色（背景由 app.js 每幀更新） */
 .ticket .cool {
@@ -286,11 +291,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
 }
 .pick .pip { width: 9px; height: 9px; }
 .pick span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#boostPicks .pick[aria-pressed="true"] {
-  border-color: var(--boost); background: rgba(255, 138, 61, .14);
-}
-#slowPicks .pick[aria-pressed="true"] { border-color: var(--slow); background: rgba(114, 185, 255, .12); }
-#obstaclePicks .pick[aria-pressed="true"] { border-color: var(--obstacle); background: rgba(232, 87, 126, .12); }
+.item-picks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.item-picks .pick { justify-content: center; min-height: 44px; font-size: 14px; }
+.item-picks .pick[aria-pressed="true"] { border-color: var(--text); background: var(--panel-hi); }
 
 .drive { margin-top: auto; display: grid; gap: 8px; }
 .drive-head { display: flex; justify-content: space-between; align-items: baseline; }
@@ -325,6 +328,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
   opacity: 0; transition: opacity .2s;
 }
 .toast.show { opacity: 1; }
+.toast.hint { opacity: 1; background: transparent; color: var(--muted); font-weight: 500; }
 .toast.bad { background: rgba(255, 106, 95, .14); color: var(--bad); }
 
 /* ---------------------------------------------------------------- 5 結果 */

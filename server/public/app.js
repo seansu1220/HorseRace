@@ -74,8 +74,9 @@ const state = {
   driveLevels: [],
   driveLane: -1,
   driveChosen: false,
-  pick: { boost: -1, slow: -1, obstacle: -1 },
-  pickChosen: { boost: false, slow: false, obstacle: false },
+  // 買券要「券」和「馬」都選好才送出，送出後兩邊都清掉
+  selectedKind: '',
+  selectedLane: -1,
   cooldown: {
     boost: { until: 0, total: 1 }, slow: { until: 0, total: 1 }, obstacle: { until: 0, total: 1 },
   },
@@ -104,7 +105,7 @@ for (const id of [
   'slipRace', 'slipLines', 'slipTotal',
   'raceScreen', 'fieldList', 'boostTicket', 'slowTicket', 'obstacleTicket',
   'boostEffect', 'slowEffect', 'obstacleEffect',
-  'boostPicks', 'slowPicks', 'obstaclePicks', 'drivePct', 'drivePicks', 'meterFill', 'tapPad', 'tapHint',
+  'itemPicks', 'drivePct', 'drivePicks', 'meterFill', 'tapPad', 'tapHint',
   'motionButton', 'motionNote', 'toast',
   'resultScreen', 'resultLabel', 'resultDelta', 'resultLine', 'resultOrder', 'leaderList',
 ]) {
@@ -112,7 +113,6 @@ for (const id of [
 }
 
 const tickets = { boost: dom.boostTicket, slow: dom.slowTicket, obstacle: dom.obstacleTicket };
-const pickContainers = { boost: dom.boostPicks, slow: dom.slowPicks, obstacle: dom.obstaclePicks };
 
 // ---------------------------------------------------------------- 連線
 
@@ -241,6 +241,9 @@ function onPhaseMessage(message) {
 
 function onPhaseChanged() {
   if (state.phase === 'betting') {
+    state.bets = [];
+    state.delta = 0;
+    state.payout = 0;
     state.finishOrder = [];
     state.finishTimes = [];
     state.usage = [];
@@ -253,8 +256,12 @@ function onPhaseChanged() {
     state.driveLevels = state.horses.map(() => 0);
     for (const kind of KINDS) state.cooldown[kind].until = 0;
     state.pending.kind = '';
+    clearItemSelection();
     chooseRaceDefaults();
     buildRaceControls();
+    clearTimeout(toastTimer);
+    dom.toast.className = 'toast';
+    renderItemHint();
   }
 }
 
@@ -576,41 +583,13 @@ dom.customAmount.addEventListener('keydown', (event) => {
 // ---------------------------------------------------------------- 比賽：券與出力
 
 /**
- * 每場開跑時的預設選擇。玩家自己點過的選擇會保留（「點了之後就維持」），
- * 沒點過的才依本場注單重新推薦：加速給自己押最多的馬、減速給賠率最低的對手。
+ * 每場開跑時的出力對象：玩家自己選過就保留，沒選過就推自己押最多的那匹。
+ * 券則不預選——券和馬都要玩家親手點過才會使用。
  */
 function chooseRaceDefaults() {
-  const mine = biggestBetLane();
-
   if (!state.driveChosen || !isValidLane(state.driveLane)) {
-    state.driveLane = mine;
+    state.driveLane = biggestBetLane();
   }
-
-  if (!state.pickChosen.boost || !isValidLane(state.pick.boost)) {
-    state.pick.boost = isValidLane(mine) ? mine : 0;
-  }
-
-  if (!state.pickChosen.slow || !isValidLane(state.pick.slow)) {
-    state.pick.slow = favoriteRival(state.pick.boost);
-  }
-
-  if (!state.pickChosen.obstacle || !isValidLane(state.pick.obstacle)) {
-    state.pick.obstacle = favoriteRival(state.pick.boost);
-  }
-}
-
-function favoriteRival(excludeLane) {
-  let best = -1;
-  let bestOdds = Infinity;
-  for (const horse of state.horses) {
-    if (horse.id === excludeLane) continue;
-    const odds = horse.odds > 0 ? horse.odds : 99;
-    if (odds < bestOdds) {
-      bestOdds = odds;
-      best = horse.id;
-    }
-  }
-  return best >= 0 ? best : 0;
 }
 
 /** 比賽畫面的按鈕只在換場時建一次，之後只更新狀態，避免 10Hz 的賽況更新一直重建 DOM。 */
@@ -629,13 +608,7 @@ function buildRaceControls() {
     dom.fieldList.append(row);
   }
 
-  for (const kind of KINDS) {
-    buildPicks(pickContainers[kind], (lane) => {
-      state.pick[kind] = lane;
-      state.pickChosen[kind] = true;
-      renderPicks();
-    });
-  }
+  buildPicks(dom.itemPicks, selectItemLane);
 
   buildPicks(dom.drivePicks, (lane) => {
     state.driveLane = lane;
@@ -686,9 +659,7 @@ function renderPicks() {
       button.setAttribute('aria-pressed', Number(button.dataset.lane) === lane ? 'true' : 'false');
     }
   };
-  mark(dom.boostPicks, state.pick.boost);
-  mark(dom.slowPicks, state.pick.slow);
-  mark(dom.obstaclePicks, state.pick.obstacle);
+  mark(dom.itemPicks, state.selectedLane);
   mark(dom.drivePicks, state.driveLane);
 }
 
@@ -741,16 +712,59 @@ function renderField() {
   }
 }
 
-// ---- 買券 ----
+// ---- 買券：券和馬都選好才使用 ----
 
-function buyTicket(kind) {
+/** 點券：選中或取消。冷卻中或等待回應的券不能選（按鈕本身也是停用的）。 */
+function selectItemKind(kind) {
+  if (tickets[kind].disabled) return;
+  state.selectedKind = state.selectedKind === kind ? '' : kind;
+  useSelectedItem();
+}
+
+/** 點馬：選中或取消。 */
+function selectItemLane(lane) {
+  state.selectedLane = state.selectedLane === lane ? -1 : lane;
+  useSelectedItem();
+}
+
+/** 兩邊都選好就使用，並清掉選擇；只選了一邊就提示下一步。 */
+function useSelectedItem() {
+  const kind = state.selectedKind;
+  const lane = state.selectedLane;
+
+  if (kind && isValidLane(lane)) {
+    clearItemSelection();
+    buyTicket(kind, lane);
+  } else {
+    // 玩家剛有新的操作，下一步的提示比上一張券的結果重要，直接蓋掉
+    clearTimeout(toastTimer);
+    renderItemHint(true);
+  }
+
+  renderPicks();
+  renderTickets();
+}
+
+function clearItemSelection() {
+  state.selectedKind = '';
+  state.selectedLane = -1;
+}
+
+/** 在買券結果的位置提示下一步；結果還在顯示時不蓋掉，除非玩家剛有新操作（force）。 */
+function renderItemHint(force) {
+  if (!force && dom.toast.classList.contains('show')) return;
+
+  let hint = '點一張券和一匹馬，兩個都選好才會使用';
+  if (state.selectedKind) hint = `已選${KIND_NAMES[state.selectedKind]}，再點一匹馬`;
+  else if (isValidLane(state.selectedLane)) hint = `已選${horseName(state.selectedLane)}，再點一張券`;
+
+  dom.toast.textContent = hint;
+  dom.toast.className = 'toast hint';
+}
+
+function buyTicket(kind, lane) {
   if (state.phase !== 'racing' || isCooling(kind) || state.pending.kind) return;
 
-  const lane = state.pick[kind];
-  if (!isValidLane(lane)) {
-    showToast('先在券下面選一匹馬', true);
-    return;
-  }
   if (state.balance < costOf(kind)) {
     showToast('籌碼不足', true);
     return;
@@ -806,7 +820,10 @@ function showToast(text, bad) {
   dom.toast.textContent = text;
   dom.toast.className = bad ? 'toast show bad' : 'toast show';
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { dom.toast.className = 'toast'; }, 2200);
+  toastTimer = setTimeout(() => {
+    dom.toast.className = 'toast';
+    if (state.phase === 'racing') renderItemHint();
+  }, 2200);
 }
 
 /**
@@ -864,13 +881,17 @@ function renderTickets() {
 
     const affordable = state.balance >= costOf(kind);
     ticket.disabled = pending || remaining > 0 || !affordable || state.phase !== 'racing';
+
+    // 選中的券變成不能用（例如籌碼不夠了）就取消選擇，免得之後點馬時送出注定失敗的請求
+    if (ticket.disabled && state.selectedKind === kind) state.selectedKind = '';
+    ticket.setAttribute('aria-pressed', state.selectedKind === kind ? 'true' : 'false');
   }
 
   return busy;
 }
 
 for (const kind of KINDS) {
-  tickets[kind].addEventListener('click', () => buyTicket(kind));
+  tickets[kind].addEventListener('click', () => selectItemKind(kind));
 }
 
 // ---------------------------------------------------------------- 結果

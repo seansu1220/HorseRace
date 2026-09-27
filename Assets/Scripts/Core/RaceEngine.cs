@@ -206,9 +206,10 @@ namespace HorseRace.Core
 
         /// <summary>
         /// 在指定位置放一個障礙物，那匹馬跑到這裡會停住 <paramref name="stunSeconds"/> 秒。
-        /// 規則面的限制（同時只能一個、保護期、太靠近終點）由呼叫端把關，這裡只擋物理上不成立的情況。
+        /// 同一匹馬前方可以有好幾個；規則面的限制（間距、保護期、太靠近終點）由呼叫端把關，
+        /// 這裡只擋物理上不成立的情況。
         /// </summary>
-        /// <returns>閘號有效、馬還在跑、前方沒有障礙物、位置在馬前方且在終點前時回傳 true。</returns>
+        /// <returns>閘號有效、馬還在跑、位置在馬前方且在終點前時回傳 true。</returns>
         public bool PlaceObstacle(int lane, double positionMeters, double stunSeconds)
         {
             if (lane < 0 || lane >= _horses.Length || stunSeconds <= 0.0)
@@ -218,7 +219,6 @@ namespace HorseRace.Core
 
             HorseState horse = _horses[lane];
             bool valid = !horse.Finished
-                         && horse.ObstacleAt == HorseState.NoObstacle
                          && positionMeters > horse.Distance
                          && positionMeters < _config.TrackLengthMeters;
             if (!valid)
@@ -226,8 +226,14 @@ namespace HorseRace.Core
                 return false;
             }
 
-            horse.ObstacleAt = positionMeters;
-            horse.ObstacleStunSeconds = stunSeconds;
+            // 依位置由近到遠插入，撞擊判定只需要看第一個
+            int index = 0;
+            while (index < horse.Obstacles.Count && horse.Obstacles[index].Position <= positionMeters)
+            {
+                index++;
+            }
+
+            horse.Obstacles.Insert(index, new ObstacleMark { Position = positionMeters, StunSeconds = stunSeconds });
             return true;
         }
 
@@ -357,7 +363,7 @@ namespace HorseRace.Core
                 }
 
                 double next = horse.Distance + horse.Speed * dt;
-                if (horse.ObstacleAt != HorseState.NoObstacle && next >= horse.ObstacleAt)
+                if (horse.Obstacles.Count > 0 && next >= horse.Obstacles[0].Position)
                 {
                     HitObstacle(horse);
                     continue;
@@ -444,14 +450,16 @@ namespace HorseRace.Core
             }
         }
 
-        /// <summary>撞上障礙物：停在障礙物前、速度歸零，之後從靜止重新加速。</summary>
+        /// <summary>撞上最近的障礙物：停在障礙物前、速度歸零，之後從靜止重新加速。後面的障礙物留著。</summary>
         private void HitObstacle(HorseState horse)
         {
-            horse.Distance = horse.ObstacleAt;
+            ObstacleMark obstacle = horse.Obstacles[0];
+            horse.Obstacles.RemoveAt(0);
+
+            horse.Distance = obstacle.Position;
             horse.Progress01 = horse.Distance / _config.TrackLengthMeters;
             horse.Speed = 0.0;
-            horse.StunRemaining = horse.ObstacleStunSeconds;
-            horse.ObstacleAt = HorseState.NoObstacle;
+            horse.StunRemaining = obstacle.StunSeconds;
             horse.ObstacleHits++;
         }
 
@@ -491,7 +499,7 @@ namespace HorseRace.Core
             horse.Speed = 0.0;
             horse.Finished = true;
             horse.Effects.Clear();
-            horse.ObstacleAt = HorseState.NoObstacle; // 還沒撞到就衝線了，障礙物跟著撤掉
+            horse.Obstacles.Clear(); // 還沒撞到就衝線了，障礙物跟著撤掉
             _finishedCount++;
         }
 
@@ -512,7 +520,7 @@ namespace HorseRace.Core
                 horse.Speed = 0.0;
                 horse.Finished = true;
                 horse.Effects.Clear();
-                horse.ObstacleAt = HorseState.NoObstacle;
+                horse.Obstacles.Clear();
                 _finishedCount++;
             }
         }

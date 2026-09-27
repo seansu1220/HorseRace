@@ -2,6 +2,13 @@ using System.Collections.Generic;
 
 namespace HorseRace.Core
 {
+    /// <summary>跑道上的一個障礙物：位置與撞到後要停住的秒數。</summary>
+    public struct ObstacleMark
+    {
+        public double Position;
+        public double StunSeconds;
+    }
+
     /// <summary>單匹馬在一場比賽中的執行期狀態。由 <see cref="RaceEngine"/> 獨佔寫入。</summary>
     public sealed class HorseState
     {
@@ -46,14 +53,8 @@ namespace HorseRace.Core
         /// <summary>目前生效中的道具效果。</summary>
         public readonly List<SpeedEffect> Effects = new List<SpeedEffect>();
 
-        /// <summary><see cref="ObstacleAt"/> 沒有障礙物時的值。</summary>
-        public const double NoObstacle = -1.0;
-
-        /// <summary>前方障礙物的位置（公尺）；沒有障礙物時為 <see cref="NoObstacle"/>。</summary>
-        public double ObstacleAt = NoObstacle;
-
-        /// <summary>撞到這個障礙物後要停住幾秒。</summary>
-        public double ObstacleStunSeconds;
+        /// <summary>前方的障礙物，依位置由近到遠排列。同一匹馬前方可以同時有好幾個。</summary>
+        public readonly List<ObstacleMark> Obstacles = new List<ObstacleMark>();
 
         /// <summary>還要停住幾秒；0 代表正常跑動。</summary>
         public double StunRemaining;
@@ -79,8 +80,6 @@ namespace HorseRace.Core
                 Finished = Finished,
                 FinishTime = FinishTime,
                 FinishRank = FinishRank,
-                ObstacleAt = ObstacleAt,
-                ObstacleStunSeconds = ObstacleStunSeconds,
                 StunRemaining = StunRemaining,
                 StunEndedAt = StunEndedAt,
                 ObstacleHits = ObstacleHits
@@ -90,6 +89,8 @@ namespace HorseRace.Core
             {
                 copy.Effects.Add(Effects[i].Clone());
             }
+
+            copy.Obstacles.AddRange(Obstacles);
 
             return copy;
         }

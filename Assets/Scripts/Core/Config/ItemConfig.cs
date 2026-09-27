@@ -47,10 +47,17 @@ namespace HorseRace.Core
         public double ObstacleLeadMeters = 10.0;
 
         /// <summary>
-        /// 馬恢復跑動後，幾秒內不能再對牠放障礙物。
-        /// 券便宜又能連買，沒有這段保護期，全場輪流放障礙會讓一匹馬整場動不了。
+        /// 同一匹馬前方的障礙物彼此至少要相隔幾公尺。障礙物一律放在馬前方固定距離，
+        /// 所以效果等於「馬要再往前跑這麼遠才能放下一個」：避免好幾個疊在同一點，
+        /// 撞一次卻消耗掉好幾張券。
         /// </summary>
-        public double ObstacleImmunitySeconds = 3.0;
+        public double ObstacleMinSpacingMeters = 1.0;
+
+        /// <summary>
+        /// 馬被絆住期間與恢復跑動後幾秒內，不能再對牠放障礙物。預設 0（關閉）。
+        /// 現場若發現某匹馬被全場輪流放障礙、整場動不了，把這個數字調大即可，不必改程式。
+        /// </summary>
+        public double ObstacleImmunitySeconds = 0.0;
 
         /// <summary>同一名玩家兩次購買障礙券的冷卻；0 代表與停住秒數相同。</summary>
         public double ObstacleCooldownSeconds = 0.0;
@@ -102,6 +109,7 @@ namespace HorseRace.Core
             ObstacleCost = ConfigMath.Clamp(ObstacleCost, 0, 1000000);
             ObstacleStunSeconds = ConfigMath.Clamp(ObstacleStunSeconds, 0.2, 10.0);
             ObstacleLeadMeters = ConfigMath.Clamp(ObstacleLeadMeters, 1.0, 100.0);
+            ObstacleMinSpacingMeters = ConfigMath.Clamp(ObstacleMinSpacingMeters, 0.0, 50.0);
             ObstacleImmunitySeconds = ConfigMath.Clamp(ObstacleImmunitySeconds, 0.0, 60.0);
             ObstacleCooldownSeconds = ConfigMath.Clamp(ObstacleCooldownSeconds, 0.0, 120.0);
         }

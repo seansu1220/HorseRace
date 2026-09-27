@@ -1,10 +1,12 @@
+using System.Collections.Generic;
 using HorseRace.Core;
 using UnityEngine;
 
 namespace HorseRace.View
 {
     /// <summary>
-    /// 賽道上的障礙物（障礙券放下的柵欄）。每條跑道一個，前方有障礙物時才顯示。
+    /// 賽道上的障礙物（障礙券放下的柵欄）。同一條跑道可以同時有好幾個，
+    /// 每條跑道各有一組重複使用的柵欄物件，數量不夠時才加建。
     /// 位置由 Core 的公尺換算成賽程完成度，再換成世界座標，與馬匹同一套換算。
     /// </summary>
     public sealed class ObstacleMarkers
@@ -18,51 +20,78 @@ namespace HorseRace.View
         private static readonly Color BarrierColor = new Color(0.91f, 0.34f, 0.49f);
         private static readonly Color StripeColor = new Color(0.97f, 0.96f, 0.92f);
 
-        private GameObject[] _markers;
+        private Transform _track;
+        private int _laneCount;
+        private List<GameObject>[] _pools;
 
         public static ObstacleMarkers Build(Transform track, int laneCount)
         {
-            ObstacleMarkers markers = new ObstacleMarkers { _markers = new GameObject[laneCount] };
+            ObstacleMarkers markers = new ObstacleMarkers
+            {
+                _track = track,
+                _laneCount = laneCount,
+                _pools = new List<GameObject>[laneCount]
+            };
+
             for (int lane = 0; lane < laneCount; lane++)
             {
-                markers._markers[lane] = BuildBarrier(track, lane, laneCount);
+                markers._pools[lane] = new List<GameObject>();
             }
 
             return markers;
         }
 
-        /// <summary>依賽況顯示或隱藏每條跑道的障礙物。</summary>
+        /// <summary>依賽況顯示每條跑道上的所有障礙物，多出來的柵欄隱藏。</summary>
         public void Refresh(RaceEngine race)
         {
-            for (int lane = 0; lane < _markers.Length; lane++)
+            for (int lane = 0; lane < _laneCount; lane++)
             {
-                bool active = race != null && lane < race.HorseCount
-                              && race.Horses[lane].ObstacleAt != HorseState.NoObstacle;
-                GameObject marker = _markers[lane];
+                List<ObstacleMark> obstacles = race != null && lane < race.HorseCount
+                    ? race.Horses[lane].Obstacles
+                    : null;
+                int count = obstacles == null ? 0 : obstacles.Count;
+                List<GameObject> pool = _pools[lane];
 
-                if (marker.activeSelf != active)
+                while (pool.Count < count)
                 {
-                    marker.SetActive(active);
+                    pool.Add(BuildBarrier(_track, lane, _laneCount));
                 }
 
-                if (!active)
+                for (int i = 0; i < pool.Count; i++)
                 {
-                    continue;
-                }
+                    bool active = i < count;
+                    if (pool[i].activeSelf != active)
+                    {
+                        pool[i].SetActive(active);
+                    }
 
-                float progress = (float)(race.Horses[lane].ObstacleAt / race.TrackLengthMeters);
-                Vector3 position = marker.transform.localPosition;
-                position.x = TrackLayout.ProgressToX(progress) + NoseOffset;
-                marker.transform.localPosition = position;
+                    if (active)
+                    {
+                        Place(pool[i], obstacles[i].Position / race.TrackLengthMeters);
+                    }
+                }
             }
         }
 
         public void HideAll()
         {
-            foreach (GameObject marker in _markers)
+            foreach (List<GameObject> pool in _pools)
             {
-                marker.SetActive(false);
+                foreach (GameObject marker in pool)
+                {
+                    if (marker.activeSelf)
+                    {
+                        marker.SetActive(false);
+                    }
+                }
             }
+        }
+
+        private static void Place(GameObject marker, double progress)
+        {
+            Vector3 position = marker.transform.localPosition;
+            position.x = TrackLayout.ProgressToX((float)progress) + NoseOffset;
+            marker.transform.localPosition = position;
         }
 
         private static GameObject BuildBarrier(Transform track, int lane, int laneCount)

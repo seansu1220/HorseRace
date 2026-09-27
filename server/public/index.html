@@ -78,7 +78,6 @@
           <span class="cost"><span class="coin"></span><span class="item-cost"></span></span>
           <span class="cool" hidden><span class="cool-text"></span></span>
         </button>
-        <div id="boostPicks" class="picks" role="group" aria-label="加速券要給哪匹馬"></div>
       </div>
       <div class="ticket-col">
         <button id="slowTicket" class="ticket slow" type="button">
@@ -87,7 +86,6 @@
           <span class="cost"><span class="coin"></span><span class="item-cost"></span></span>
           <span class="cool" hidden><span class="cool-text"></span></span>
         </button>
-        <div id="slowPicks" class="picks" role="group" aria-label="減速券要給哪匹馬"></div>
       </div>
       <div class="ticket-col">
         <button id="obstacleTicket" class="ticket obstacle" type="button">
@@ -96,11 +94,13 @@
           <span class="cost"><span class="coin"></span><span class="item-cost"></span></span>
           <span class="cool" hidden><span class="cool-text"></span></span>
         </button>
-        <div id="obstaclePicks" class="picks" role="group" aria-label="障礙券要放在哪匹馬前面"></div>
       </div>
     </div>
 
-    <!-- 買券結果：固定佔位在券的下方，不遮住場上名次 -->
+    <!-- 券和馬都選好才會使用，用完兩邊的選擇都清掉，避免連打時誤觸 -->
+    <div id="itemPicks" class="item-picks" role="group" aria-label="券要用在哪匹馬"></div>
+
+    <!-- 操作提示與買券結果：固定佔位在選馬下方，不遮住場上名次 -->
     <p id="toast" class="toast" aria-live="polite"></p>
 
     <div class="drive">
