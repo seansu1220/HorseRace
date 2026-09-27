@@ -18,6 +18,7 @@ namespace HorseRace.Core.Protocol
         public const string Step = "step";
         public const string Bet = "bet";
         public const string Item = "item";
+        public const string Cheer = "cheer";
 
         // 下行（大螢幕 → 手機）
         public const string Phase = "phase";
@@ -151,6 +152,9 @@ namespace HorseRace.Core.Protocol
 
         /// <summary>障礙券兩次購買之間的冷卻秒數。</summary>
         public double obstacleCooldown;
+
+        /// <summary>加入啦啦隊的價格（下注階段才能加入）。</summary>
+        public int cheerCost;
     }
 
     /// <summary>
@@ -226,6 +230,9 @@ namespace HorseRace.Core.Protocol
 
         /// <summary>障礙券還要冷卻幾秒，0 代表可以買。</summary>
         public double obstacleCool;
+
+        /// <summary>這一場是否已加入啦啦隊（比賽中能不能搖手機出力）。</summary>
+        public bool cheer;
     }
 
     /// <summary>排行榜的一列。</summary>
@@ -265,5 +272,17 @@ namespace HorseRace.Core.Protocol
 
         /// <summary>本場每匹馬被誰用了什麼券、幾張。</summary>
         public UsageEntry[] usage;
+
+        /// <summary>本場獎項。</summary>
+        public AwardEntry[] awards;
+    }
+
+    /// <summary>一個獎項：顯示用的名稱、得主與成績說明（文字由大螢幕產生，手機直接顯示）。</summary>
+    [Serializable]
+    public sealed class AwardEntry
+    {
+        public string title;
+        public string name;
+        public string detail;
     }
 }

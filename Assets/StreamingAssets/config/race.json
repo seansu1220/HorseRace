@@ -22,7 +22,7 @@
     "IdleSeconds": 6.0,
     "BettingSeconds": 30.0,
     "PhotoSeconds": 4.0,
-    "SettleSeconds": 8.0,
+    "SettleSeconds": 20.0,
 
     "StartingChips": 1000,
     "MinimumBet": 1,
@@ -47,7 +47,10 @@
     "ObstacleLeadMeters": 10.0,
     "ObstacleMinSpacingMeters": 1.0,
     "ObstacleImmunitySeconds": 0.0,
-    "ObstacleCooldownSeconds": 0.0
+    "ObstacleCooldownSeconds": 0.0,
+
+    "CheerCost": 5,
+    "CheerRequired": true
   },
 
   "Network": {
@@ -71,6 +74,16 @@
     "PlaceholderSeconds": 6.0,
     "IntroSkippable": true,
     "IntroMaxWaitSeconds": 30.0
+  },
+
+  "Bots": {
+    "BetChance": 0.9,
+    "MaxBetFraction": 0.3,
+    "CheerChance": 0.7,
+    "DecideWithinSeconds": 8.0,
+    "ItemsPerSecond": 0.35,
+    "StepsPerSecond": 7.0,
+    "MaxBots": 40
   },
 
   "Roster": [

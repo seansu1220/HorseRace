@@ -56,8 +56,11 @@ const state = {
   horses: [],
   rules: {
     minBet: 1, itemCost: 5, itemSeconds: 2, itemCooldown: 2, boostX: 1.35, slowX: 0.6,
-    obstacleCost: 10, obstacleSeconds: 2, obstacleCooldown: 2,
+    obstacleCost: 10, obstacleSeconds: 2, obstacleCooldown: 2, cheerCost: 5,
   },
+
+  // 這一場是否已加入啦啦隊：只有加入的人比賽中能搖手機出力
+  cheer: false,
 
   balance: 0,
   bets: [],
@@ -87,6 +90,7 @@ const state = {
   finishOrder: [],
   finishTimes: [],
   usage: [],
+  awards: [],
   leaders: [],
 };
 
@@ -102,6 +106,7 @@ for (const id of [
   'joinScreen', 'nickInput', 'joinButton',
   'waitScreen', 'waitWho', 'waitBalance', 'waitHint', 'waitCrowd', 'waitCount', 'waitListTitle', 'waitList',
   'betScreen', 'chipTray', 'customBox', 'customAmount', 'oddsList', 'betNote',
+  'cheerButton', 'cheerTitle', 'cheerHint', 'cheerPrice', 'cheerCost', 'awardsTitle', 'awardList',
   'slipRace', 'slipLines', 'slipTotal',
   'raceScreen', 'fieldList', 'boostTicket', 'slowTicket', 'obstacleTicket',
   'boostEffect', 'slowEffect', 'obstacleEffect',
@@ -206,6 +211,7 @@ function handleMessage(message) {
       state.finishOrder = Array.isArray(message.order) ? message.order : [];
       state.finishTimes = Array.isArray(message.times) ? message.times : [];
       state.usage = Array.isArray(message.usage) ? message.usage : [];
+      state.awards = Array.isArray(message.awards) ? message.awards : [];
       state.leaders = Array.isArray(message.top) ? message.top : [];
       render();
       break;
@@ -232,6 +238,7 @@ function onPhaseMessage(message) {
   if (typeof message.obstacleCost === 'number' && message.obstacleCost >= 0) rules.obstacleCost = message.obstacleCost;
   if (message.obstacleSeconds > 0) rules.obstacleSeconds = message.obstacleSeconds;
   if (message.obstacleCooldown > 0) rules.obstacleCooldown = message.obstacleCooldown;
+  if (typeof message.cheerCost === 'number' && message.cheerCost >= 0) rules.cheerCost = message.cheerCost;
 
   if (state.phase !== previousPhase || state.raceNumber !== previousRace) {
     onPhaseChanged();
@@ -241,6 +248,8 @@ function onPhaseMessage(message) {
 
 function onPhaseChanged() {
   if (state.phase === 'betting') {
+    state.cheer = false; // 每一場都要重新加入啦啦隊
+    state.awards = [];
     state.bets = [];
     state.delta = 0;
     state.payout = 0;
@@ -271,6 +280,7 @@ function onWallet(message) {
   state.bets = Array.isArray(message.bets) ? message.bets : [];
   state.delta = message.delta | 0;
   state.payout = message.payout | 0;
+  state.cheer = !!message.cheer;
   if (message.nick) {
     state.nickname = message.nick;
     localStorage.setItem('nick', state.nickname);
@@ -279,7 +289,7 @@ function onWallet(message) {
   applyCooldowns(message);
 
   const reject = message.reject || '';
-  if (state.lastAction === 'bet') {
+  if (state.lastAction === 'bet' || state.lastAction === 'cheer') {
     dom.betNote.textContent = reject;
   } else if (state.lastAction === 'item') {
     finishItemRequest(reject);
@@ -492,8 +502,26 @@ function renderChipTray() {
 
 function renderBetting() {
   renderChipRowAndOdds();
+  renderCheerButton();
   renderSlip();
 }
+
+function renderCheerButton() {
+  const joined = state.cheer;
+  dom.cheerButton.classList.toggle('joined', joined);
+  dom.cheerButton.disabled = joined || state.balance < state.rules.cheerCost;
+  dom.cheerTitle.textContent = joined ? '已加入啦啦隊' : '加入啦啦隊';
+  dom.cheerHint.textContent = joined ? '比賽開始後就能搖手機幫馬加油' : '比賽中才能搖手機幫馬加油，每場要重新加入';
+  dom.cheerPrice.hidden = joined;
+  dom.cheerCost.textContent = formatChips(state.rules.cheerCost);
+}
+
+dom.cheerButton.addEventListener('click', () => {
+  if (state.cheer || state.phase !== 'betting') return;
+  dom.betNote.textContent = '';
+  state.lastAction = 'cheer';
+  send({ t: 'cheer', pid: state.playerId, nick: state.nickname });
+});
 
 function renderChipRowAndOdds() {
   renderChipTray();
@@ -675,11 +703,15 @@ function renderRace() {
   dom.meterFill.style.width = percent + '%';
   dom.drivePct.textContent = percent + '%';
 
-  const canDrive = isValidLane(state.driveLane);
+  const canDrive = state.cheer && isValidLane(state.driveLane);
   dom.tapPad.disabled = !canDrive;
-  dom.tapHint.textContent = canDrive
-    ? `替${horseName(state.driveLane)}出力 · 要多人一起搖才會滿`
-    : '先在上面選一匹要推的馬';
+  if (!state.cheer) {
+    dom.tapHint.textContent = '這場沒加入啦啦隊，下一場下注時可以加入';
+  } else {
+    dom.tapHint.textContent = isValidLane(state.driveLane)
+      ? `替${horseName(state.driveLane)}出力 · 要多人一起搖才會滿`
+      : '先在上面選一匹要推的馬';
+  }
 }
 
 function renderField() {
@@ -936,6 +968,8 @@ function renderResult() {
     dom.resultOrder.append(place);
   });
 
+  renderAwards();
+
   dom.leaderList.textContent = '';
   if (state.leaders.length === 0) {
     dom.leaderList.append(el('div', 'empty', '還沒有紀錄'));
@@ -947,6 +981,17 @@ function renderResult() {
       el('span', 'v', formatChips(entry.balance)));
     dom.leaderList.append(row);
   });
+}
+
+/** 本場獎項：券券富翁、最強啦啦隊……文字由大螢幕產生，這裡直接顯示。 */
+function renderAwards() {
+  dom.awardList.textContent = '';
+  dom.awardsTitle.hidden = state.awards.length === 0;
+  for (const award of state.awards) {
+    const item = el('div', 'award');
+    item.append(el('b', '', award.title), el('span', '', award.name), el('small', '', award.detail));
+    dom.awardList.append(item);
+  }
 }
 
 /** 某匹馬本場被誰用了什麼券：「加速 阿明×2、小美×1　減速 老王×2」。沒人用過就不顯示。 */
@@ -995,7 +1040,8 @@ dom.nickInput.addEventListener('keydown', (event) => {
 // ---------------------------------------------------------------- 出力（連打／搖動）
 
 function addStep() {
-  if (state.phase !== 'racing' || !isValidLane(state.driveLane)) return;
+  // 沒加入啦啦隊的人不送步數（大螢幕那邊也會擋，這裡先省掉無用的封包）
+  if (state.phase !== 'racing' || !state.cheer || !isValidLane(state.driveLane)) return;
   state.pendingSteps += 1;
 }
 

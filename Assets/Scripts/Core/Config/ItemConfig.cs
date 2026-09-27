@@ -62,6 +62,16 @@ namespace HorseRace.Core
         /// <summary>同一名玩家兩次購買障礙券的冷卻；0 代表與停住秒數相同。</summary>
         public double ObstacleCooldownSeconds = 0.0;
 
+        // ---- 啦啦隊：下注階段加入，比賽中才能搖手機出力 ----
+
+        /// <summary>加入啦啦隊的價格。每一場都要重新加入。</summary>
+        public int CheerCost = 5;
+
+        /// <summary>
+        /// 是否一定要加入啦啦隊才能搖手機出力。關掉就回到「人人都能搖」（例如使用實體計步器時）。
+        /// </summary>
+        public bool CheerRequired = true;
+
         /// <summary>這種券的價格。</summary>
         public int CostOf(ItemKind kind)
         {
@@ -107,6 +117,7 @@ namespace HorseRace.Core
             UsesPerRace = ConfigMath.Clamp(UsesPerRace, 0, 99);
             MaxStacksPerHorse = ConfigMath.Clamp(MaxStacksPerHorse, 1, 20);
             ObstacleCost = ConfigMath.Clamp(ObstacleCost, 0, 1000000);
+            CheerCost = ConfigMath.Clamp(CheerCost, 0, 1000000);
             ObstacleStunSeconds = ConfigMath.Clamp(ObstacleStunSeconds, 0.2, 10.0);
             ObstacleLeadMeters = ConfigMath.Clamp(ObstacleLeadMeters, 1.0, 100.0);
             ObstacleMinSpacingMeters = ConfigMath.Clamp(ObstacleMinSpacingMeters, 0.0, 50.0);

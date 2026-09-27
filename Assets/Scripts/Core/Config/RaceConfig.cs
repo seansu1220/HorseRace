@@ -103,7 +103,7 @@ namespace HorseRace.Core
         public double PhotoSeconds = 4.0;
 
         /// <summary>派彩結算。</summary>
-        public double SettleSeconds = 8.0;
+        public double SettleSeconds = 20.0;
 
         // ---- 籌碼與賠率 ----
 

@@ -73,6 +73,20 @@ namespace HorseRace.Core
             get { return _order; }
         }
 
+        /// <summary>移除一名玩家（測試用的電腦玩家退場時用）。找不到就什麼都不做。</summary>
+        public bool Remove(string playerId)
+        {
+            PlayerAccount account;
+            if (string.IsNullOrEmpty(playerId) || !_players.TryGetValue(playerId, out account))
+            {
+                return false;
+            }
+
+            _players.Remove(playerId);
+            _order.Remove(account);
+            return true;
+        }
+
         public PlayerAccount Find(string playerId)
         {
             if (string.IsNullOrEmpty(playerId))

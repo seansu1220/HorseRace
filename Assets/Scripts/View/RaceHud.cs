@@ -43,6 +43,7 @@ namespace HorseRace.View
         private Text[] _resultRows;
         private Text[] _resultUsage;
         private Text _resultTitle;
+        private Text _resultAwards;
 
         private ItemFeed _itemFeed;
 
@@ -263,6 +264,30 @@ namespace HorseRace.View
             }
         }
 
+        /// <summary>在名次面板下方列出本場獎項（結算時才有）。沒有獎項時清空。</summary>
+        public void ShowAwards(IReadOnlyList<Award> awards)
+        {
+            if (awards == null || awards.Count == 0)
+            {
+                _resultAwards.text = "";
+                return;
+            }
+
+            System.Text.StringBuilder text = new System.Text.StringBuilder();
+            foreach (Award award in awards)
+            {
+                if (text.Length > 0)
+                {
+                    text.Append('\n');
+                }
+
+                text.Append(ItemStyle.Tint(AwardText.Title(award.Kind), "#E4B64A")).Append("　")
+                    .Append(award.Nickname).Append("　").Append(ItemStyle.Tint(AwardText.Detail(award), "#9AA4B4"));
+            }
+
+            _resultAwards.text = text.ToString();
+        }
+
         public void HideResult()
         {
             _resultPanel.gameObject.SetActive(false);
@@ -390,9 +415,12 @@ namespace HorseRace.View
         private const float ResultRowHeight = 98f;
         private const float ResultPanelWidth = 1000f;
 
+        /// <summary>名次面板底部留給獎項的高度（最多四個獎項，一行一個）。</summary>
+        private const float AwardsHeight = 190f;
+
         private void BuildResultPanel(int laneCount)
         {
-            float height = 120f + laneCount * ResultRowHeight;
+            float height = 120f + laneCount * ResultRowHeight + AwardsHeight;
 
             _resultPanel = UiFactory.Panel(_canvas.transform, "ResultPanel", UiFactory.PanelColorSolid);
             UiFactory.Place(_resultPanel, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
@@ -423,6 +451,11 @@ namespace HorseRace.View
                     new Vector2(96f, -(top + 44f)), new Vector2(ResultPanelWidth - 160f, 36f));
                 UiFactory.ShrinkToFit(_resultUsage[position], 14);
             }
+
+            _resultAwards = UiFactory.Label(_resultPanel, "Awards", "", 30,
+                TextAnchor.UpperLeft, UiFactory.TextColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)_resultAwards.transform, new Vector2(0f, 0f), new Vector2(0f, 0f),
+                new Vector2(64f, 24f), new Vector2(ResultPanelWidth - 128f, AwardsHeight - 30f));
 
             _resultPanel.gameObject.SetActive(false);
         }
@@ -555,13 +588,9 @@ namespace HorseRace.View
                     continue;
                 }
 
+                // 只顯示籌碼：上一場的輸贏放在這裡沒有意義，結算畫面已經有了
                 PlayerAccount account = ranked[i];
-                string delta = account.LastDelta == 0
-                    ? ""
-                    : (account.LastDelta > 0 ? "  +" + account.LastDelta : "  " + account.LastDelta);
-
-                _leaderRows[i].text = (i + 1) + ".  " + account.Nickname + "    "
-                                      + account.Balance + delta;
+                _leaderRows[i].text = (i + 1) + ".  " + account.Nickname + "    " + account.Balance;
                 _leaderRows[i].color = i == 0 ? UiFactory.AccentColor : UiFactory.TextColor;
             }
         }
@@ -569,10 +598,10 @@ namespace HorseRace.View
         private void BuildHint()
         {
             Text hint = UiFactory.Label(_canvas.transform, "DebugHint",
-                "[空白鍵] 跳過階段    [R] 重新開始    [1] 加速    [2] 減速    [3] 障礙物（隨機一匹）    [Esc] 離開",
+                "[空白鍵] 跳過階段  [R] 重新開始  [1][2][3] 加速／減速／障礙  [B][N][M] 電腦玩家 +1／+5／全部移除  [Esc] 離開",
                 22, TextAnchor.LowerLeft, UiFactory.MutedTextColor);
             UiFactory.Place((RectTransform)hint.transform, new Vector2(0f, 0f),
-                new Vector2(0f, 0f), new Vector2(36f, 28f), new Vector2(1200f, 34f));
+                new Vector2(0f, 0f), new Vector2(36f, 28f), new Vector2(1500f, 34f));
         }
 
         private void BuildNameTags(int laneCount)

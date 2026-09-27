@@ -57,6 +57,10 @@
     </label>
     <span class="label">點馬下注 · 同一匹可以加碼</span>
     <div id="oddsList" class="odds-list"></div>
+    <button id="cheerButton" class="cheer" type="button">
+      <span class="cheer-main"><b id="cheerTitle">加入啦啦隊</b><small id="cheerHint">比賽中才能搖手機幫馬加油</small></span>
+      <span id="cheerPrice" class="cheer-cost"><span class="coin"></span><span id="cheerCost">5</span></span>
+    </button>
     <p id="betNote" class="note"></p>
     <div id="slip" class="slip">
       <h3><span>我的注單</span><span id="slipRace"></span></h3>
@@ -123,6 +127,8 @@
     </div>
     <span class="label">名次</span>
     <div id="resultOrder" class="podium"></div>
+    <span id="awardsTitle" class="label" hidden>本場獎項</span>
+    <div id="awardList" class="awards"></div>
     <span class="label">籌碼排行</span>
     <div id="leaderList" class="board"></div>
   </section>

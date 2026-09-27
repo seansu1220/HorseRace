@@ -198,6 +198,19 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
 .odds .rate { font-family: var(--num); font-size: 30px; font-weight: 700; line-height: 1; text-align: right; }
 .odds .rate small { font-size: 13px; color: var(--muted); font-family: var(--sans); font-weight: 500; margin-left: 2px; }
 
+/* 啦啦隊：下注時加入，比賽中才能出力 */
+.cheer {
+  display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 14px;
+  border-radius: 12px; border: 1.5px dashed var(--gold); background: transparent; cursor: pointer; text-align: left;
+}
+.cheer-main { display: grid; flex: 1; }
+.cheer-main b { font-size: 16px; color: var(--gold); }
+.cheer-main small { font-size: 12px; color: var(--muted); }
+.cheer-cost { display: flex; align-items: center; gap: 5px; font-family: var(--num); font-size: 20px; font-weight: 700; }
+.cheer.joined { border-style: solid; border-color: var(--ok); background: rgba(76, 212, 131, .08); cursor: default; }
+.cheer.joined .cheer-main b { color: var(--ok); }
+.cheer:disabled:not(.joined) { opacity: .45; }
+
 .slip {
   margin-top: auto; background: var(--paper); color: var(--ink); border-radius: 6px;
   padding: 12px 14px 14px; position: relative; box-shadow: 0 6px 16px rgba(0, 0, 0, .35);
@@ -353,6 +366,14 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
 .place.first .pos { color: var(--gold); }
 .place .swatch { width: 8px; height: 22px; }
 .place .mine { font-size: 12px; color: var(--gold); font-weight: 700; }
+.awards { display: grid; gap: 6px; }
+.award {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: baseline;
+  padding: 8px 12px; border-radius: 10px; background: rgba(228, 182, 74, .1);
+}
+.award b { color: var(--gold); font-size: 14px; }
+.award span { font-weight: 700; }
+.award small { grid-column: 2; color: var(--muted); font-size: 12px; }
 .board { display: grid; }
 .board .entry {
   display: grid; grid-template-columns: 24px 1fr auto; gap: 8px; padding: 8px 4px;

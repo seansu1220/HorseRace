@@ -46,6 +46,9 @@ namespace HorseRace.View
         private LocalRelayLauncher _localRelay;
         private IntroPlayer _intro;
 
+        /// <summary>測試用的電腦玩家（B 加一個、N 加五個、M 全部移除）。</summary>
+        private BotSquad _bots;
+
         /// <summary>實際使用的中繼伺服器位址（本機伺服器換埠時與設定檔不同），不含大螢幕金鑰。</summary>
         private string _relayUrl;
         private DriveMessage _driveMessage;
@@ -101,6 +104,7 @@ namespace HorseRace.View
             PumpOddsCalculation();
             PumpLocalRelay();
             PumpRelayInbox();
+            _bots.Tick(_loop, deltaTime);
 
             _loop.Tick(deltaTime);
 
@@ -139,6 +143,7 @@ namespace HorseRace.View
 
             _loop = new GameLoop(_config, seed);
             _loop.PhaseEntered += OnPhaseEntered;
+            _bots = new BotSquad(_config.Bots, HandleInbound, seed);
             _debugRandom = new DeterministicRandom(seed ^ 0x5F3759D);
             _oddsTask = null;
 
@@ -185,6 +190,7 @@ namespace HorseRace.View
 
                 case RacePhase.Photo:
                     _hud.ShowResult(_loop.Race, _loop.FinishOrder, _loop.Items.Summarize());
+                    _hud.ShowAwards(null);
                     LogFinishOrder();
                     break;
 
@@ -195,7 +201,8 @@ namespace HorseRace.View
                     break;
 
                 case RacePhase.Settle:
-                    // GameLoop 已在進入本階段時完成派彩，這裡只負責把結果送出去
+                    // GameLoop 已在進入本階段時完成派彩與頒獎，這裡只負責顯示與送出去
+                    _hud.ShowAwards(_loop.LastAwards);
                     BroadcastSettlement();
                     break;
             }
@@ -440,6 +447,10 @@ namespace HorseRace.View
                     HandleItem(message);
                     break;
 
+                case MessageType.Cheer:
+                    HandleCheer(message);
+                    break;
+
                 case MessageType.Join:
                     PlayerAccount joined = _loop.Book.Join(message.pid, message.nick);
                     if (joined != null)
@@ -490,6 +501,33 @@ namespace HorseRace.View
                     return "找不到你的帳戶，請重新整理";
                 default:
                     return "下注失敗";
+            }
+        }
+
+        private void HandleCheer(InboundMessage message)
+        {
+            PlayerAccount account = _loop.Book.Find(message.pid) ?? _loop.Book.Join(message.pid, message.nick);
+            if (account == null)
+            {
+                return;
+            }
+
+            CheerRejection rejection = _loop.TryBuyCheer(message.pid);
+            SendWallet(account, rejection == CheerRejection.None ? null : DescribeCheerRejection(rejection));
+        }
+
+        private static string DescribeCheerRejection(CheerRejection rejection)
+        {
+            switch (rejection)
+            {
+                case CheerRejection.NotBetting:
+                    return "只有下注時間可以加入啦啦隊";
+                case CheerRejection.AlreadyJoined:
+                    return "這場已經是啦啦隊了";
+                case CheerRejection.InsufficientChips:
+                    return "籌碼不足";
+                default:
+                    return "找不到你的帳戶，請重新整理";
             }
         }
 
@@ -583,7 +621,8 @@ namespace HorseRace.View
                 reject = rejectReason ?? string.Empty,
                 boostCool = _loop.ItemCooldownRemaining(account.PlayerId, ItemKind.Boost),
                 slowCool = _loop.ItemCooldownRemaining(account.PlayerId, ItemKind.Slow),
-                obstacleCool = _loop.ItemCooldownRemaining(account.PlayerId, ItemKind.Obstacle)
+                obstacleCool = _loop.ItemCooldownRemaining(account.PlayerId, ItemKind.Obstacle),
+                cheer = _loop.Cheer.IsMember(account.PlayerId)
             };
 
             _relay.Send(JsonUtility.ToJson(message));
@@ -611,10 +650,28 @@ namespace HorseRace.View
                 order = _loop.FinishOrder,
                 times = FinishTimesInOrder(),
                 top = top,
-                usage = BuildUsageEntries()
+                usage = BuildUsageEntries(),
+                awards = BuildAwardEntries()
             };
 
             _relay.Send(JsonUtility.ToJson(result));
+        }
+
+        private AwardEntry[] BuildAwardEntries()
+        {
+            List<Award> awards = _loop.LastAwards ?? new List<Award>();
+            AwardEntry[] entries = new AwardEntry[awards.Count];
+            for (int i = 0; i < awards.Count; i++)
+            {
+                entries[i] = new AwardEntry
+                {
+                    title = AwardText.Title(awards[i].Kind),
+                    name = awards[i].Nickname,
+                    detail = AwardText.Detail(awards[i])
+                };
+            }
+
+            return entries;
         }
 
         private const int LeaderboardSize = 5;
@@ -711,7 +768,8 @@ namespace HorseRace.View
                 slowX = _config.Items.SlowMultiplier,
                 obstacleCost = _config.Items.ObstacleCost,
                 obstacleSeconds = _config.Items.ObstacleStunSeconds,
-                obstacleCooldown = _config.Items.CooldownOf(ItemKind.Obstacle)
+                obstacleCooldown = _config.Items.CooldownOf(ItemKind.Obstacle),
+                cheerCost = _config.Items.CheerCost
             };
 
             _relay.Send(JsonUtility.ToJson(message));
@@ -1115,6 +1173,8 @@ namespace HorseRace.View
 
             if (_loop.Phase == RacePhase.Lobby)
             {
+                HandleBotKeys();
+
                 if (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return)
                     || Input.GetKeyDown(KeyCode.KeypadEnter))
                 {
@@ -1149,6 +1209,26 @@ namespace HorseRace.View
             if (Input.GetKeyDown(KeyCode.Alpha3))
             {
                 PlaceDebugObstacle();
+            }
+
+            HandleBotKeys();
+        }
+
+        /// <summary>B 加一個電腦玩家、N 加五個、M 全部移除。等待入場時也能用（放在 Lobby 判斷之前呼叫）。</summary>
+        private void HandleBotKeys()
+        {
+            int toAdd = Input.GetKeyDown(KeyCode.B) ? 1 : (Input.GetKeyDown(KeyCode.N) ? 5 : 0);
+            if (toAdd > 0)
+            {
+                int added = _bots.Add(toAdd);
+                Debug.Log("[RaceDirector] 新增 " + added + " 個電腦玩家，目前共 " + _bots.Count + " 個"
+                          + (added < toAdd ? "（已達上限 " + _config.Bots.MaxBots + "）" : "") + "。");
+            }
+
+            if (Input.GetKeyDown(KeyCode.M))
+            {
+                int removed = _bots.RemoveAll(_loop.Book);
+                Debug.Log("[RaceDirector] 移除 " + removed + " 個電腦玩家。");
             }
         }
 

@@ -53,6 +53,7 @@ namespace HorseRace.Core
             _seedSource = new DeterministicRandom(seed);
             Book = new BettingBook(config.Race);
             Items = new ItemShop(config.Items);
+            Cheer = new CheerSquad(config.Items);
             _stepGate = new StepGate(config.Race);
             RaceNumber = 1;
 
@@ -92,6 +93,23 @@ namespace HorseRace.Core
 
         /// <summary>道具券的購買規則與冷卻。</summary>
         public ItemShop Items { get; private set; }
+
+        /// <summary>啦啦隊：誰這場可以搖手機出力，以及各自出了多少力。</summary>
+        public CheerSquad Cheer { get; private set; }
+
+        /// <summary>上一場的獎項（結算時產生，下一場結算前保持不變）。</summary>
+        public List<Award> LastAwards { get; private set; }
+
+        /// <summary>加入啦啦隊。只有下注階段可以加入，比賽中才能搖。</summary>
+        public CheerRejection TryBuyCheer(string playerId)
+        {
+            if (Phase != RacePhase.Betting)
+            {
+                return CheerRejection.NotBetting;
+            }
+
+            return Cheer.TryJoin(Book.Find(playerId));
+        }
 
         /// <summary>上一場的派彩結果。尚未結算過為 null。</summary>
         public SettlementResult LastSettlement { get; private set; }
@@ -142,8 +160,19 @@ namespace HorseRace.Core
                 return 0;
             }
 
+            if (_config.Items.CheerRequired && !Cheer.IsMember(playerId))
+            {
+                return 0; // 沒加入啦啦隊的人不能出力
+            }
+
             int admitted = _stepGate.Admit(playerId, stepCount, Race.ElapsedSeconds);
-            return admitted > 0 && Race.AddSteps(lane, admitted) ? admitted : 0;
+            if (admitted <= 0 || !Race.AddSteps(lane, admitted))
+            {
+                return 0;
+            }
+
+            Cheer.RecordSteps(playerId, admitted);
+            return admitted;
         }
 
         /// <summary>賠率還沒算好。外部看到 true 就該去啟動背景計算。</summary>
@@ -275,17 +304,22 @@ namespace HorseRace.Core
             {
                 // 清掉上一場的注單並補發同情籌碼，必須在開放下注之前完成
                 Book.BeginRace();
+                Cheer.BeginBetting();
             }
             else if (phase == RacePhase.Racing)
             {
                 // 比賽時間從 0 重新起算，上一場的冷卻與步數額度都不能帶過來
                 Items.BeginRace();
+                Cheer.BeginRace();
                 _stepGate.Reset();
             }
             else if (phase == RacePhase.Settle)
             {
                 LastSettlement = Book.Settle(
                     FinishOrder != null && FinishOrder.Length > 0 ? FinishOrder[0] : -1, Odds);
+
+                // 派彩之後才能頒「本場大贏家」
+                LastAwards = RaceAwards.Compute(Items.Uses, Cheer, Book);
             }
 
             Action<RacePhase> handler = PhaseEntered;

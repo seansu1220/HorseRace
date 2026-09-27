@@ -41,6 +41,9 @@ namespace HorseRace.Tests
             ObstacleTests();
             ItemUsageTests();
             StepGateTests();
+            CheerTests();
+            AwardTests();
+            BotTests();
 
             Console.WriteLine();
             if (Failures.Count == 0)
@@ -1261,7 +1264,15 @@ namespace HorseRace.Tests
         /// <summary>指定人數一起替 0 號馬搖 5 秒，每人每秒要求指定步數，回傳最後的驅動強度。</summary>
         private static double DriveLevelWithPlayers(int players, int stepsPerSecondEach)
         {
-            GameLoop loop = RacingLoop(DefaultConfig(), 60);
+            // 照真實流程：下注階段加入啦啦隊，開跑後才能出力
+            GameLoop loop = BettingLoop(DefaultConfig(), 60);
+            for (int p = 0; p < players; p++)
+            {
+                loop.Book.Join("p" + p, "玩家" + p);
+                loop.TryBuyCheer("p" + p);
+            }
+
+            loop.SkipPhase(); // Betting -> Racing
             const double dt = 0.1;
             double owed = 0.0;
             for (int tick = 0; tick < 50; tick++)
@@ -1278,6 +1289,244 @@ namespace HorseRace.Tests
             }
 
             return loop.Race.DriveLevelOf(0);
+        }
+
+        // ---------------------------------------------------------------- 啦啦隊
+
+        /// <summary>建立在下注階段的 GameLoop（跳過等待入場與 Idle）。</summary>
+        private static GameLoop BettingLoop(GameConfig config, int seed)
+        {
+            config.Race.WaitForHostToStart = false;
+            GameLoop loop = new GameLoop(config, seed);
+            loop.SkipPhase(); // Idle -> Betting
+            return loop;
+        }
+
+        private static void CheerTests()
+        {
+            Section("啦啦隊");
+
+            GameConfig config = DefaultConfig();
+            Check("加入啦啦隊預設 5 籌碼、預設一定要加入才能出力",
+                config.Items.CheerCost == 5 && config.Items.CheerRequired);
+            Check("結算時間預設 20 秒", Math.Abs(config.Race.SettleSeconds - 20.0) < 1e-12);
+
+            GameLoop loop = BettingLoop(DefaultConfig(), 91);
+            PlayerAccount fan = loop.Book.Join("fan", "阿明");
+            PlayerAccount idle = loop.Book.Join("idle", "小美");
+            int before = fan.Balance;
+
+            Check("下注階段可以加入啦啦隊", loop.TryBuyCheer("fan") == CheerRejection.None);
+            Check("加入扣 5 籌碼", fan.Balance == before - 5);
+            Check("同一場不能重複加入（不扣錢）",
+                loop.TryBuyCheer("fan") == CheerRejection.AlreadyJoined && fan.Balance == before - 5);
+            Check("沒見過的玩家被拒", loop.TryBuyCheer("ghost") == CheerRejection.UnknownPlayer);
+            PlayerAccount broke = loop.Book.Join("broke", "阿窮");
+            broke.Balance = 2;
+            Check("籌碼不足被拒且不扣錢",
+                loop.TryBuyCheer("broke") == CheerRejection.InsufficientChips && broke.Balance == 2);
+
+            loop.SkipPhase(); // Betting -> Racing
+            Check("比賽中不能加入", loop.TryBuyCheer("idle") == CheerRejection.NotBetting);
+            Check("有加入的人可以出力", loop.AddSteps("fan", 0, 5) == 5);
+            Check("沒加入的人出力不計入", loop.AddSteps("idle", 1, 5) == 0 && loop.Race.DriveLevelOf(1) == 0.0);
+            Check("出力步數有記錄", loop.Cheer.StepsOf("fan") == 5 && loop.Cheer.StepsOf("idle") == 0);
+
+            GameConfig optional = DefaultConfig();
+            optional.Items.CheerRequired = false;
+            GameLoop open = RacingLoop(optional, 92);
+            Check("關閉「一定要加入」時人人都能出力", open.AddSteps("anyone", 0, 3) == 3);
+
+            // 下一場要重新加入
+            loop.SkipPhase(); // Racing -> Photo
+            loop.SkipPhase(); // Photo -> Settle
+            Check("結算時出力紀錄還在（頒獎用）", loop.Cheer.StepsOf("fan") == 5);
+            loop.SkipPhase(); // Settle -> Idle
+            loop.SkipPhase(); // Idle -> Betting
+            Check("下一場開放下注時資格作廢，要重新加入", !loop.Cheer.IsMember("fan"));
+            loop.SkipPhase(); // Betting -> Racing
+            Check("沒重新加入就不能出力", loop.AddSteps("fan", 0, 5) == 0);
+        }
+
+        // ---------------------------------------------------------------- 賽後獎項
+
+        private static void AwardTests()
+        {
+            Section("賽後獎項");
+
+            GameConfig config = DefaultConfig();
+            config.Items.MaxStacksPerHorse = 20;
+            GameLoop loop = BettingLoop(config, 101);
+            loop.Book.Join("a", "阿明");
+            loop.Book.Join("b", "小美");
+            loop.Book.Join("c", "老王");
+            loop.TryBuyCheer("a");
+            loop.TryBuyCheer("b");
+            loop.SetOdds(loop.RaceNumber, new[] { 5.0, 5.0, 5.0, 5.0 }); // 押遍四匹 400、必中 500，淨賺 100
+            for (int lane = 0; lane < 4; lane++)
+            {
+                loop.TryPlaceBet("c", lane, 100); // 老王押遍四匹，必中
+            }
+
+            loop.SkipPhase(); // Betting -> Racing
+            loop.TryUseItem("a", ItemKind.Boost, 0);
+            loop.TryUseItem("a", ItemKind.Slow, 1);
+            loop.TryUseItem("b", ItemKind.Obstacle, 2);
+            AdvanceLoop(loop, config.Items.EffectiveCooldownSeconds + 0.1);
+            loop.TryUseItem("a", ItemKind.Boost, 0);
+            loop.TryUseItem("b", ItemKind.Obstacle, 3);
+            loop.AddSteps("a", 0, 3);
+            loop.AddSteps("b", 1, 8);
+
+            loop.SkipPhase(); // Racing -> Photo
+            Check("結算前還沒有獎項", loop.LastAwards == null);
+            loop.SkipPhase(); // Photo -> Settle
+
+            List<Award> awards = loop.LastAwards;
+            Award tycoon = awards.Find(a => a.Kind == AwardKind.TicketTycoon);
+            Award cheerleader = awards.Find(a => a.Kind == AwardKind.TopCheerleader);
+            Award roadblocker = awards.Find(a => a.Kind == AwardKind.Roadblocker);
+            Award winner = awards.Find(a => a.Kind == AwardKind.BigWinner);
+
+            Check("券券富翁：阿明買了 3 張", tycoon != null && tycoon.Nickname == "阿明" && tycoon.Value == 3);
+            Check("最強啦啦隊：小美出力 8 步", cheerleader != null && cheerleader.Nickname == "小美" && cheerleader.Value == 8);
+            Check("路霸：小美放了 2 個障礙物", roadblocker != null && roadblocker.Nickname == "小美" && roadblocker.Value == 2);
+            Check("本場大贏家：押遍四匹的老王", winner != null && winner.Nickname == "老王" && winner.Value > 0);
+
+            // 沒人用券、沒人出力、沒人贏 → 什麼獎都不頒
+            GameLoop quiet = BettingLoop(DefaultConfig(), 102);
+            quiet.Book.Join("a", "阿明");
+            quiet.SkipPhase();
+            quiet.SkipPhase();
+            quiet.SkipPhase();
+            Check("沒有人符合的獎項不頒", quiet.LastAwards != null && quiet.LastAwards.Count == 0);
+
+            // 平手時先做到的人得獎
+            List<ItemUse> tie = new List<ItemUse>
+            {
+                new ItemUse { Lane = 0, Kind = ItemKind.Boost, PlayerId = "x", Nickname = "先" },
+                new ItemUse { Lane = 0, Kind = ItemKind.Boost, PlayerId = "y", Nickname = "後" }
+            };
+            BettingBook book = new BettingBook(config.Race);
+            book.Join("x", "先");
+            book.Join("y", "後");
+            List<Award> tieAwards = RaceAwards.Compute(tie, new CheerSquad(config.Items), book);
+            Check("平手時先用券的人得獎", tieAwards.Count == 1 && tieAwards[0].Nickname == "先");
+        }
+
+        // ---------------------------------------------------------------- 電腦玩家
+
+        private static void BotTests()
+        {
+            Section("電腦玩家");
+
+            GameConfig config = DefaultConfig();
+            config.Bots.BetChance = 1.0;
+            config.Bots.CheerChance = 1.0;
+            config.Bots.ItemsPerSecond = 2.0;
+            GameLoop loop = BettingLoop(config, 111);
+
+            List<BotBrain> bots = new List<BotBrain>();
+            for (int i = 0; i < 5; i++)
+            {
+                BotBrain bot = new BotBrain("bot-" + i, "電腦" + i, config.Bots, 500 + i);
+                bots.Add(bot);
+                HorseRace.Core.Protocol.InboundMessage join = bot.JoinMessage();
+                loop.Book.Join(join.pid, join.nick);
+            }
+
+            BettingBook book = loop.Book;
+            Check("加入後有 5 個電腦玩家", book.PlayerCount == 5 && book.Find("bot-3").Nickname == "電腦3");
+
+            int bets = 0;
+            int cheers = 0;
+            int stepsSent = 0;
+            int items = 0;
+            bool actedOutsideRace = false;
+
+            // 下注階段 10 秒
+            for (double t = 0.0; t < 10.0; t += 0.1)
+            {
+                foreach (BotBrain bot in bots)
+                {
+                    foreach (HorseRace.Core.Protocol.InboundMessage message in bot.Think(loop.Phase, book.Find(bot.PlayerId),
+                                 loop.Cheer.IsMember(bot.PlayerId), 4, 0.1))
+                    {
+                        if (message.t == HorseRace.Core.Protocol.MessageType.Bet)
+                        {
+                            bets += loop.TryPlaceBet(message.pid, message.lane, message.amount) == BetRejection.None ? 1 : 0;
+                        }
+                        else if (message.t == HorseRace.Core.Protocol.MessageType.Cheer)
+                        {
+                            cheers += loop.TryBuyCheer(message.pid) == CheerRejection.None ? 1 : 0;
+                        }
+                        else
+                        {
+                            actedOutsideRace = true;
+                        }
+                    }
+                }
+            }
+
+            Check("下注階段每個電腦玩家都下注成功（實得 " + bets + "）", bets == 5);
+            Check("下注階段每個電腦玩家都加入啦啦隊（實得 " + cheers + "）", cheers == 5);
+            Check("下注階段不會用券或出力", !actedOutsideRace);
+            bool withinBalance = true;
+            foreach (BotBrain bot in bots)
+            {
+                withinBalance &= book.Find(bot.PlayerId).Balance >= 0;
+            }
+
+            Check("下注金額不超過手上的籌碼", withinBalance);
+
+            loop.SkipPhase(); // Betting -> Racing
+            for (double t = 0.0; t < 5.0; t += 0.05)
+            {
+                foreach (BotBrain bot in bots)
+                {
+                    foreach (HorseRace.Core.Protocol.InboundMessage message in bot.Think(loop.Phase, book.Find(bot.PlayerId),
+                                 loop.Cheer.IsMember(bot.PlayerId), 4, 0.05))
+                    {
+                        if (message.t == HorseRace.Core.Protocol.MessageType.Step)
+                        {
+                            stepsSent += loop.AddSteps(message.pid, message.lane, message.n);
+                        }
+                        else if (message.t == HorseRace.Core.Protocol.MessageType.Item)
+                        {
+                            ItemKind kind;
+                            if (HorseRace.Core.Protocol.ItemKinds.TryParse(message.kind, out kind)
+                                && loop.TryUseItem(message.pid, kind, message.lane) == ItemRejection.None)
+                            {
+                                items++;
+                            }
+                        }
+                    }
+                }
+
+                loop.Tick(0.05);
+                if (loop.Phase != RacePhase.Racing)
+                {
+                    break;
+                }
+            }
+
+            Check("比賽中電腦玩家會出力（實得 " + stepsSent + " 步）", stepsSent > 50);
+            Check("比賽中電腦玩家會用券（實得 " + items + " 張）", items > 5);
+
+            BotBrain a = new BotBrain("same", "同", config.Bots, 42);
+            BotBrain b = new BotBrain("same", "同", config.Bots, 42);
+            PlayerAccount account = new PlayerAccount { PlayerId = "same", Balance = 1000 };
+            bool identical = true;
+            for (double t = 0.0; t < 10.0; t += 0.1)
+            {
+                identical &= a.Think(RacePhase.Betting, account, false, 4, 0.1).Count
+                             == b.Think(RacePhase.Betting, account, false, 4, 0.1).Count;
+            }
+
+            Check("同 seed 的電腦玩家做出一樣的決定", identical);
+
+            Check("移除玩家", book.Remove("bot-0") && book.Find("bot-0") == null && book.PlayerCount == 4);
+            Check("移除不存在的玩家不會出錯", !book.Remove("nobody"));
         }
 
         // ---------------------------------------------------------------- 開賽前等待入場
