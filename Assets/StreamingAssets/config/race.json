@@ -29,7 +29,7 @@
     "CharityChips": 200,
     "AllowanceIntervalSeconds": 30.0,
     "AllowanceChips": 50,
-    "GameMinutes": 30.0,
+    "GameMinutes": 10.0,
     "TakeRate": 0.15,
     "OddsSimulationRuns": 1500,
     "MinOdds": 1.05,
@@ -43,7 +43,7 @@
     "CooldownSeconds": 0.0,
     "Cost": 5,
     "UsesPerRace": 0,
-    "MaxStacksPerHorse": 2,
+    "MaxStacksPerHorse": 0,
 
     "ObstacleCost": 10,
     "ObstacleStunSeconds": 2.0,

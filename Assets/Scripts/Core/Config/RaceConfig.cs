@@ -131,7 +131,7 @@ namespace HorseRace.Core
         /// 遊戲時間（分鐘）的預設值，主持人在開賽前的等待入場畫面可以改。0 代表不限時。
         /// 時間到時若比賽進行到一半，會把那一場打完才結束。
         /// </summary>
-        public double GameMinutes = 30.0;
+        public double GameMinutes = 10.0;
 
         /// <summary>抽水率。賠率整體的平衡閥門，調高則玩家長期期望值下降。</summary>
         public double TakeRate = 0.15;

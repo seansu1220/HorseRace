@@ -32,8 +32,12 @@ namespace HorseRace.Core
         /// <summary>每名玩家每場最多可買幾張券；0 代表不限。</summary>
         public int UsesPerRace = 0;
 
-        /// <summary>同一匹馬身上最多能同時疊幾個效果，避免全場圍剿一匹。</summary>
-        public int MaxStacksPerHorse = 2;
+        /// <summary>
+        /// 同一匹馬身上最多能同時疊幾個加速／減速效果；0 代表不限（預設）。
+        /// 效果的倍率是相乘的，不限時全場一起丟減速券可以讓一匹馬幾乎停住——這是刻意保留的玩法，
+        /// 現場若覺得太狠，設個上限即可，不必改程式。
+        /// </summary>
+        public int MaxStacksPerHorse = 0;
 
         // ---- 障礙券：放在目標馬前方，撞到後原地停住一段時間 ----
 
@@ -115,7 +119,7 @@ namespace HorseRace.Core
             CooldownSeconds = ConfigMath.Clamp(CooldownSeconds, 0.0, 120.0);
             Cost = ConfigMath.Clamp(Cost, 0, 1000000);
             UsesPerRace = ConfigMath.Clamp(UsesPerRace, 0, 99);
-            MaxStacksPerHorse = ConfigMath.Clamp(MaxStacksPerHorse, 1, 20);
+            MaxStacksPerHorse = ConfigMath.Clamp(MaxStacksPerHorse, 0, 999);
             ObstacleCost = ConfigMath.Clamp(ObstacleCost, 0, 1000000);
             CheerCost = ConfigMath.Clamp(CheerCost, 0, 1000000);
             ObstacleStunSeconds = ConfigMath.Clamp(ObstacleStunSeconds, 0.2, 10.0);

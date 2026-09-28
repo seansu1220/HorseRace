@@ -775,7 +775,7 @@ namespace HorseRace.Tests
                 SlowMultiplier = 5.0,
                 DurationSeconds = -1.0,
                 UsesPerRace = -5,
-                MaxStacksPerHorse = 0
+                MaxStacksPerHorse = -3
             };
             brokenItems.Validate();
 
@@ -783,7 +783,7 @@ namespace HorseRace.Tests
             Check("減速倍率一定小於 1", brokenItems.SlowMultiplier < 1.0);
             Check("道具持續時間被夾到正值", brokenItems.DurationSeconds > 0.0);
             Check("道具使用次數不會是負數", brokenItems.UsesPerRace >= 0);
-            Check("道具疊加上限至少為 1", brokenItems.MaxStacksPerHorse >= 1);
+            Check("道具疊加上限負數修正為 0（不限）", brokenItems.MaxStacksPerHorse == 0);
             Check("MultiplierFor 對應到正確的倍率",
                 Math.Abs(brokenItems.MultiplierFor(EffectKind.Boost) - brokenItems.BoostMultiplier) < 1e-12
                 && Math.Abs(brokenItems.MultiplierFor(EffectKind.Slow) - brokenItems.SlowMultiplier) < 1e-12);
@@ -946,8 +946,23 @@ namespace HorseRace.Tests
                 loop.TryUseItem("p3", ItemKind.Slow, 1) == ItemRejection.InsufficientChips
                 && poor.Balance == items.Cost - 1);
 
-            GameLoop crowded = RacingLoop(DefaultConfig(), 53);
-            for (int i = 0; i < items.MaxStacksPerHorse; i++)
+            // 預設不限：十個人同時對同一匹馬丟減速券，全部生效
+            GameLoop mob = RacingLoop(DefaultConfig(), 57);
+            int mobAccepted = 0;
+            for (int i = 0; i < 10; i++)
+            {
+                mob.Book.Join("m" + i, "路人" + i);
+                mobAccepted += mob.TryUseItem("m" + i, ItemKind.Slow, 0) == ItemRejection.None ? 1 : 0;
+            }
+
+            Check("預設不限疊加：十人同時減速同一匹全部生效（實得 " + mobAccepted + "）",
+                items.MaxStacksPerHorse == 0 && mobAccepted == 10 && mob.Race.ActiveEffectCount(0) == 10);
+
+            // 設了上限時仍會擋下
+            GameConfig cappedConfig = DefaultConfig();
+            cappedConfig.Items.MaxStacksPerHorse = 2;
+            GameLoop crowded = RacingLoop(cappedConfig, 53);
+            for (int i = 0; i < cappedConfig.Items.MaxStacksPerHorse; i++)
             {
                 crowded.Book.Join("c" + i, "玩家" + i);
                 crowded.TryUseItem("c" + i, ItemKind.Slow, 0);
@@ -955,7 +970,7 @@ namespace HorseRace.Tests
 
             PlayerAccount latecomer = crowded.Book.Join("late", "晚到");
             int latecomerBalance = latecomer.Balance;
-            Check("同一匹馬效果疊滿後被拒且不扣錢",
+            Check("設了上限時，同一匹馬效果疊滿後被拒且不扣錢",
                 crowded.TryUseItem("late", ItemKind.Slow, 0) == ItemRejection.HorseEffectsFull
                 && latecomer.Balance == latecomerBalance);
             Check("效果疊滿時冷卻不會開始",
@@ -1547,9 +1562,9 @@ namespace HorseRace.Tests
             Section("零用金與遊戲時限");
 
             GameConfig defaults = DefaultConfig();
-            Check("預設每 30 秒發 50 籌碼、遊戲 30 分鐘",
+            Check("預設每 30 秒發 50 籌碼、遊戲 10 分鐘",
                 Math.Abs(defaults.Race.AllowanceIntervalSeconds - 30.0) < 1e-12
-                && defaults.Race.AllowanceChips == 50 && Math.Abs(defaults.Race.GameMinutes - 30.0) < 1e-12);
+                && defaults.Race.AllowanceChips == 50 && Math.Abs(defaults.Race.GameMinutes - 10.0) < 1e-12);
 
             // --- 零用金 ---
             GameConfig config = DefaultConfig();

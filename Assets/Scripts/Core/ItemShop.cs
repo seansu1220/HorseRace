@@ -254,7 +254,8 @@ namespace HorseRace.Core
 
         private ItemRejection CheckSpeedEffect(RaceEngine race, int lane)
         {
-            return race.ActiveEffectCount(lane) >= _config.MaxStacksPerHorse
+            bool limited = _config.MaxStacksPerHorse > 0;
+            return limited && race.ActiveEffectCount(lane) >= _config.MaxStacksPerHorse
                 ? ItemRejection.HorseEffectsFull
                 : ItemRejection.None;
         }
