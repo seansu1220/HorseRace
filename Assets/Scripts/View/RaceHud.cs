@@ -55,8 +55,10 @@ namespace HorseRace.View
         private string[] _shownEffects;
         private string[] _tagNames;
 
-        /// <summary>頂部場次後面的遊戲時間，例如「剩餘 12:34」或「最後一場」。</summary>
-        private string _gameClock = "";
+        /// <summary>頂部列右邊獨立的遊戲總時間面板（和「第幾場」無關，所以分開放）。</summary>
+        private RectTransform _clockPanel;
+        private Text _clockValue;
+        private string _shownClock;
 
         private Text _notice;
         private float _noticeUntil;
@@ -104,6 +106,7 @@ namespace HorseRace.View
             BuildResultPanel(laneCount);
 
             BuildNotice();
+            BuildGameClock();
 
             // 等待入場與最終排名是全螢幕畫面，必須最後建立才會蓋在所有東西上面
             _lobby = LobbyScreen.Build(_canvas.transform);
@@ -167,9 +170,7 @@ namespace HorseRace.View
 
         public void ShowPhase(RacePhase phase, double remainingSeconds, int raceNumber)
         {
-            _raceLabel.text = _gameClock.Length > 0
-                ? "第 " + raceNumber + " 場　" + _gameClock
-                : "第 " + raceNumber + " 場";
+            _raceLabel.text = "第 " + raceNumber + " 場";
             _phaseLabel.text = PhaseTitle(phase);
             _phaseLabel.color = PhaseColor(phase);
 
@@ -310,10 +311,41 @@ namespace HorseRace.View
             _nameTags[lane].text = badges.Length > 0 ? name + "  " + badges : name;
         }
 
-        /// <summary>設定頂部場次後面的遊戲時間文字；空字串代表不顯示（不限時）。</summary>
+        /// <summary>
+        /// 設定遊戲總時間面板：「12:34」或「最後一場」；空字串代表不顯示（不限時、等待入場、遊戲結束）。
+        /// </summary>
         public void SetGameClock(string text)
         {
-            _gameClock = text ?? "";
+            text = text ?? "";
+            if (text == _shownClock)
+            {
+                return;
+            }
+
+            _shownClock = text;
+            _clockPanel.gameObject.SetActive(text.Length > 0);
+            _clockValue.text = text;
+            _clockValue.fontSize = text.Contains(":") ? 54 : 40;
+        }
+
+        private void BuildGameClock()
+        {
+            // 放在頂部列右邊、自成一塊：它是整場活動的剩餘時間，不是某一場的倒數
+            _clockPanel = UiFactory.Panel(_canvas.transform, "GameClock", UiFactory.PanelColor);
+            UiFactory.Place(_clockPanel, new Vector2(0.5f, 1f), new Vector2(0f, 1f),
+                new Vector2(300f, -24f), new Vector2(210f, 120f));
+
+            Text title = UiFactory.Label(_clockPanel, "Title", "遊戲剩餘", 24,
+                TextAnchor.UpperCenter, UiFactory.MutedTextColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)title.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(0f, -12f), new Vector2(200f, 32f));
+
+            _clockValue = UiFactory.Label(_clockPanel, "Value", "", 54,
+                TextAnchor.MiddleCenter, UiFactory.AccentColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)_clockValue.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                new Vector2(0f, 10f), new Vector2(200f, 70f));
+
+            _clockPanel.gameObject.SetActive(false);
         }
 
         /// <summary>顯示或隱藏遊戲結束的最終排名。</summary>

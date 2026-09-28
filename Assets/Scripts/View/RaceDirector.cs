@@ -1232,7 +1232,7 @@ namespace HorseRace.View
 
         // ---- 除錯輸入 ----
 
-        /// <summary>頂部場次後面的遊戲時間：「剩餘 12:34」、時間到之後是「最後一場」；不限時則不顯示。</summary>
+        /// <summary>遊戲總時間面板的內容：「12:34」、時間到之後是「最後一場」；不限時則不顯示。</summary>
         private string DescribeGameClock()
         {
             double remaining = _loop.GameRemainingSeconds;
@@ -1247,7 +1247,7 @@ namespace HorseRace.View
             }
 
             int seconds = (int)Math.Ceiling(remaining);
-            return "剩餘 " + (seconds / 60) + ":" + (seconds % 60).ToString("00");
+            return (seconds / 60) + ":" + (seconds % 60).ToString("00");
         }
 
         /// <summary>左側名單與馬頭名牌上的效果圖示。只有比賽中才有，其他時候清空。</summary>
