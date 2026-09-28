@@ -15,6 +15,50 @@ namespace HorseRace.View
         private const string SlowHex = "#72B9FF";
         private const string ObstacleHex = "#E8577E";
 
+        /// <summary>同一種效果最多逐一畫幾個圖示，再多就改成「▲×10」，免得一整排擠爆。</summary>
+        private const int MaxRepeatedIcons = 3;
+
+        /// <summary>
+        /// 一匹馬身上的狀態圖示：▲ 加速、▼ 減速、暈 被絆住、■ 前方有障礙物。
+        /// 有幾個就畫幾個；超過 <see cref="MaxRepeatedIcons"/> 個就寫成「▲×10」。
+        /// </summary>
+        public static string EffectBadges(int boosts, int slows, bool stunned, int obstaclesAhead)
+        {
+            StringBuilder text = new StringBuilder();
+            AppendBadge(text, "▲", boosts, BoostHex);
+            AppendBadge(text, "▼", slows, SlowHex);
+            AppendBadge(text, "暈", stunned ? 1 : 0, ObstacleHex);
+            AppendBadge(text, "■", obstaclesAhead, ObstacleHex);
+            return text.ToString();
+        }
+
+        private static void AppendBadge(StringBuilder text, string icon, int count, string hex)
+        {
+            if (count <= 0)
+            {
+                return;
+            }
+
+            if (text.Length > 0)
+            {
+                text.Append(' ');
+            }
+
+            string body = count <= MaxRepeatedIcons ? Repeat(icon, count) : icon + "×" + count;
+            text.Append(Tint(body, hex));
+        }
+
+        private static string Repeat(string icon, int count)
+        {
+            StringBuilder repeated = new StringBuilder();
+            for (int i = 0; i < count; i++)
+            {
+                repeated.Append(icon);
+            }
+
+            return repeated.ToString();
+        }
+
         /// <summary>賽後統計每種券最多列幾個人，其餘合併成「等 N 人」，免得一行擠爆。</summary>
         private const int NamesPerKind = 4;
 

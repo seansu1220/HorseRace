@@ -25,7 +25,12 @@ namespace HorseRace.Core
         /// 開賽前等待入場。不倒數，大螢幕放大顯示 QRCode，主持人按鍵才進入第一場的 Idle。
         /// 編號接在最後，既有階段的數值不變。
         /// </summary>
-        Lobby = 5
+        Lobby = 5,
+
+        /// <summary>
+        /// 遊戲時間到、最後一場打完之後的結束畫面。不再有任何倒數或比賽，按重新開始才會回到等待入場。
+        /// </summary>
+        GameOver = 6
     }
 
     /// <summary>
@@ -42,6 +47,11 @@ namespace HorseRace.Core
 
         private double _phaseRemaining;
 
+        /// <summary>遊戲開始後經過的秒數：只在離開等待入場後、遊戲結束前累計。</summary>
+        private double _gameElapsed;
+        private double _gameDurationSeconds;
+        private double _allowanceElapsed;
+
         public GameLoop(GameConfig config, int seed)
         {
             if (config == null)
@@ -56,6 +66,7 @@ namespace HorseRace.Core
             Cheer = new CheerSquad(config.Items);
             _stepGate = new StepGate(config.Race);
             RaceNumber = 1;
+            _gameDurationSeconds = config.Race.GameMinutes * 60.0;
 
             PrepareLineup();
             EnterPhase(config.Race.WaitForHostToStart ? RacePhase.Lobby : RacePhase.Idle);
@@ -63,6 +74,54 @@ namespace HorseRace.Core
 
         /// <summary>目前階段。</summary>
         public RacePhase Phase { get; private set; }
+
+        /// <summary>遊戲時限（秒）；0 代表不限時。</summary>
+        public double GameDurationSeconds
+        {
+            get { return _gameDurationSeconds; }
+        }
+
+        /// <summary>遊戲開始後經過的秒數（等待入場期間不計）。</summary>
+        public double GameElapsedSeconds
+        {
+            get { return _gameElapsed; }
+        }
+
+        /// <summary>遊戲時間已到：這一場打完就結束。不限時時永遠是 false。</summary>
+        public bool IsTimeUp
+        {
+            get { return _gameDurationSeconds > 0.0 && _gameElapsed >= _gameDurationSeconds; }
+        }
+
+        /// <summary>剩餘遊戲時間（秒），不限時時為 -1。</summary>
+        public double GameRemainingSeconds
+        {
+            get
+            {
+                if (_gameDurationSeconds <= 0.0)
+                {
+                    return -1.0;
+                }
+
+                double remaining = _gameDurationSeconds - _gameElapsed;
+                return remaining > 0.0 ? remaining : 0.0;
+            }
+        }
+
+        /// <summary>發零用金時通知，參數是每人拿到的金額。</summary>
+        public event Action<int> AllowanceGranted;
+
+        /// <summary>主持人設定遊戲時間（分鐘，0 = 不限時）。只能在開賽前的等待入場時設定。</summary>
+        public bool SetGameMinutes(double minutes)
+        {
+            if (Phase != RacePhase.Lobby || minutes < 0.0)
+            {
+                return false;
+            }
+
+            _gameDurationSeconds = minutes * 60.0;
+            return true;
+        }
 
         /// <summary>本階段剩餘秒數。Racing 與 Lobby 沒有倒數，這裡固定為 0。</summary>
         public double PhaseRemainingSeconds
@@ -192,9 +251,18 @@ namespace HorseRace.Core
         /// <summary>推進時間。外部每幀呼叫一次，傳入這一幀經過的秒數。</summary>
         public void Tick(double deltaSeconds)
         {
-            if (deltaSeconds <= 0.0 || Phase == RacePhase.Lobby)
+            if (deltaSeconds <= 0.0 || Phase == RacePhase.Lobby || Phase == RacePhase.GameOver)
             {
-                // 等待入場時時間不流動：人還沒到齊，倒數不能偷偷開始
+                // 等待入場時時間不流動：人還沒到齊，倒數不能偷偷開始；遊戲結束後也不再動
+                return;
+            }
+
+            AdvanceGameClock(deltaSeconds);
+
+            // 時間到的時候若正在兩場之間，不再開新的一場
+            if (Phase == RacePhase.Idle && IsTimeUp)
+            {
+                EnterPhase(RacePhase.GameOver);
                 return;
             }
 
@@ -248,6 +316,11 @@ namespace HorseRace.Core
         /// <summary>除錯用：立刻結束目前階段。Racing 階段則直接把比賽跑完。</summary>
         public void SkipPhase()
         {
+            if (Phase == RacePhase.GameOver)
+            {
+                return;
+            }
+
             if (Phase == RacePhase.Racing)
             {
                 Race.RunToCompletion();
@@ -284,6 +357,13 @@ namespace HorseRace.Core
                     break;
 
                 case RacePhase.Settle:
+                    if (IsTimeUp)
+                    {
+                        // 時間已到，這一場就是最後一場
+                        EnterPhase(RacePhase.GameOver);
+                        break;
+                    }
+
                     RaceNumber++;
                     PrepareLineup();
                     EnterPhase(RacePhase.Idle);
@@ -292,6 +372,31 @@ namespace HorseRace.Core
                 default:
                     // Racing 由 Tick 依比賽是否結束處理，不會走到這裡
                     break;
+            }
+        }
+
+        /// <summary>推進遊戲時鐘並發零用金。等待入場與遊戲結束時不會被呼叫。</summary>
+        private void AdvanceGameClock(double deltaSeconds)
+        {
+            _gameElapsed += deltaSeconds;
+
+            double interval = _config.Race.AllowanceIntervalSeconds;
+            if (interval <= 0.0 || _config.Race.AllowanceChips <= 0)
+            {
+                return;
+            }
+
+            _allowanceElapsed += deltaSeconds;
+            while (_allowanceElapsed >= interval)
+            {
+                _allowanceElapsed -= interval;
+                Book.GrantAll(_config.Race.AllowanceChips);
+
+                Action<int> handler = AllowanceGranted;
+                if (handler != null)
+                {
+                    handler(_config.Race.AllowanceChips);
+                }
             }
         }
 

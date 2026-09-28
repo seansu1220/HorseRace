@@ -89,7 +89,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
   box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .18);
 }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); flex: none; margin-left: auto; }
-.chips + .dot { margin-left: 0; }
+/* 籌碼存在時燈號緊跟在後；中間可能夾著零用金提示，所以用 ~ 而不是 + */
+.chips ~ .dot { margin-left: 0; }
 .dot.online { background: var(--ok); }
 
 /* ---------------------------------------------------------------- 共用 */
@@ -241,7 +242,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
 
 .field-list { display: flex; flex-direction: column; gap: 5px; }
 .row {
-  display: grid; grid-template-columns: 18px 8px 52px 1fr 40px; align-items: center; gap: 8px;
+  display: grid; grid-template-columns: 18px 8px 52px 1fr auto; align-items: center; gap: 8px;
   height: 32px; padding: 0 10px; border-radius: 8px; background: var(--panel);
 }
 .row .rank { font-family: var(--num); font-weight: 700; font-size: 17px; color: var(--muted); }
@@ -250,9 +251,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
 .row .swatch { width: 8px; height: 18px; }
 .track { height: 6px; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }
 .track i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; transition: width .2s linear; }
-.fx { justify-self: end; display: flex; gap: 3px; }
-.fx i { width: 16px; height: 16px; border-radius: 5px; font-style: normal; font-size: 11px; font-weight: 900;
-        display: grid; place-items: center; }
+.fx { justify-self: end; display: flex; gap: 3px; min-width: 20px; }
+.fx i { min-width: 16px; height: 16px; padding: 0 3px; border-radius: 5px; font-style: normal; font-size: 11px;
+        font-weight: 900; display: grid; place-items: center; white-space: nowrap; letter-spacing: -1px; }
 .fx .up { background: rgba(255, 138, 61, .2); color: var(--boost); }
 .fx .down { background: rgba(114, 185, 255, .18); color: var(--slow); }
 .fx .stun { background: rgba(232, 87, 126, .22); color: var(--obstacle); }
@@ -366,14 +367,22 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
 .place.first .pos { color: var(--gold); }
 .place .swatch { width: 8px; height: 22px; }
 .place .mine { font-size: 12px; color: var(--gold); font-weight: 700; }
-.awards { display: grid; gap: 6px; }
-.award {
-  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: baseline;
-  padding: 8px 12px; border-radius: 10px; background: rgba(228, 182, 74, .1);
+/* 獎項：獎項名、玩家名、說明各自一欄，名稱長短不同也逐行對齊 */
+.awards {
+  display: grid; grid-template-columns: max-content max-content 1fr; gap: 8px 14px; align-items: baseline;
+  padding: 10px 12px; border-radius: 10px; background: rgba(228, 182, 74, .1);
 }
-.award b { color: var(--gold); font-size: 14px; }
-.award span { font-weight: 700; }
-.award small { grid-column: 2; color: var(--muted); font-size: 12px; }
+.awards:empty { display: none; }
+.awards .a-title { color: var(--gold); font-size: 14px; font-weight: 700; }
+.awards .a-name { font-weight: 700; }
+.awards .a-detail { color: var(--muted); font-size: 13px; }
+
+/* 零用金：餘額下方短暫跳出「+50」（.bar 是 sticky，本身就是定位基準） */
+.bonus-flash {
+  position: absolute; right: 16px; top: calc(100% + 6px); z-index: 11;
+  padding: 4px 10px; border-radius: 999px; background: var(--ok); color: #06200f;
+  font-weight: 900; font-size: 14px; box-shadow: 0 4px 12px rgba(0, 0, 0, .35);
+}
 .board { display: grid; }
 .board .entry {
   display: grid; grid-template-columns: 24px 1fr auto; gap: 8px; padding: 8px 4px;

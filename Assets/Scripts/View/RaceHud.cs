@@ -27,6 +27,7 @@ namespace HorseRace.View
             public Text Value;
             public RectTransform BarFill;
             public RectTransform DriveFill;
+            public Text Effects;
         }
 
         private Canvas _canvas;
@@ -43,9 +44,22 @@ namespace HorseRace.View
         private Text[] _resultRows;
         private Text[] _resultUsage;
         private Text _resultTitle;
-        private Text _resultAwards;
+        private Text _awardTitles;
+        private Text _awardNames;
+        private Text _awardDetails;
 
         private ItemFeed _itemFeed;
+        private FinalScreen _final;
+
+        /// <summary>每匹馬目前顯示的效果圖示，狀態沒變就不重組字串（每幀都會被呼叫）。</summary>
+        private string[] _shownEffects;
+        private string[] _tagNames;
+
+        /// <summary>頂部場次後面的遊戲時間，例如「剩餘 12:34」或「最後一場」。</summary>
+        private string _gameClock = "";
+
+        private Text _notice;
+        private float _noticeUntil;
 
         /// <summary>右上角「掃碼加入」：開賽後晚到的人也能入場。</summary>
         private RectTransform _joinCorner;
@@ -89,8 +103,12 @@ namespace HorseRace.View
             BuildHint();
             BuildResultPanel(laneCount);
 
-            // 等待入場是全螢幕畫面，必須最後建立才會蓋在所有東西上面
+            BuildNotice();
+
+            // 等待入場與最終排名是全螢幕畫面，必須最後建立才會蓋在所有東西上面
             _lobby = LobbyScreen.Build(_canvas.transform);
+            _final = FinalScreen.Build(_canvas.transform);
+            _shownEffects = new string[laneCount];
         }
 
         /// <summary>顯示或隱藏右上角的「掃碼加入」。比賽進行中收起，讓出位置給用券播報。</summary>
@@ -140,17 +158,22 @@ namespace HorseRace.View
                 UiFactory.SetProgress(_rows[lane].DriveFill, 0f, BarWidth);
 
                 _nameTags[lane].text = lineup[lane].Name;
+                _tagNames[lane] = lineup[lane].Name;
+                _shownEffects[lane] = "";
+                _rows[lane].Effects.text = "";
                 _nameTags[lane].color = coat;
             }
         }
 
         public void ShowPhase(RacePhase phase, double remainingSeconds, int raceNumber)
         {
-            _raceLabel.text = "第 " + raceNumber + " 場";
+            _raceLabel.text = _gameClock.Length > 0
+                ? "第 " + raceNumber + " 場　" + _gameClock
+                : "第 " + raceNumber + " 場";
             _phaseLabel.text = PhaseTitle(phase);
             _phaseLabel.color = PhaseColor(phase);
 
-            if (phase == RacePhase.Racing || phase == RacePhase.Lobby)
+            if (phase == RacePhase.Racing || phase == RacePhase.Lobby || phase == RacePhase.GameOver)
             {
                 _countdownLabel.text = "";
             }
@@ -231,6 +254,84 @@ namespace HorseRace.View
             {
                 _itemFeed.Refresh(Time.unscaledTime, _lineup);
             }
+
+            if (_notice != null)
+            {
+                float remaining = _noticeUntil - Time.unscaledTime;
+                _notice.gameObject.SetActive(remaining > 0f);
+                Color color = _notice.color;
+                color.a = Mathf.Clamp01(remaining / NoticeFadeSeconds);
+                _notice.color = color;
+            }
+        }
+
+        private const float NoticeSeconds = 3.5f;
+        private const float NoticeFadeSeconds = 0.8f;
+
+        /// <summary>畫面上方中央短暫顯示一行公告（例如發零用金），幾秒後淡出。</summary>
+        public void FlashNotice(string text)
+        {
+            _notice.text = text;
+            _noticeUntil = Time.unscaledTime + NoticeSeconds;
+        }
+
+        private void BuildNotice()
+        {
+            _notice = UiFactory.Label(_canvas.transform, "Notice", "", 40,
+                TextAnchor.MiddleCenter, UiFactory.AccentColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)_notice.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(0f, -210f), new Vector2(1000f, 60f));
+            Outline outline = _notice.gameObject.AddComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
+            outline.effectDistance = new Vector2(2f, -2f);
+            _notice.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// 更新某匹馬的效果圖示（左側名單與馬頭上的名牌）。有幾個效果就畫幾個，太多改成「▲×10」。
+        /// </summary>
+        public void ShowEffects(int lane, int boosts, int slows, bool stunned, int obstaclesAhead)
+        {
+            if (lane < 0 || lane >= _rows.Length)
+            {
+                return;
+            }
+
+            string badges = ItemStyle.EffectBadges(boosts, slows, stunned, obstaclesAhead);
+            if (badges == _shownEffects[lane])
+            {
+                return;
+            }
+
+            _shownEffects[lane] = badges;
+            _rows[lane].Effects.text = badges;
+
+            string name = _tagNames != null && lane < _tagNames.Length ? _tagNames[lane] : "";
+            _nameTags[lane].text = badges.Length > 0 ? name + "  " + badges : name;
+        }
+
+        /// <summary>設定頂部場次後面的遊戲時間文字；空字串代表不顯示（不限時）。</summary>
+        public void SetGameClock(string text)
+        {
+            _gameClock = text ?? "";
+        }
+
+        /// <summary>顯示或隱藏遊戲結束的最終排名。</summary>
+        public void ShowFinal(IReadOnlyList<PlayerAccount> ranked)
+        {
+            if (ranked == null)
+            {
+                _final.Hide();
+                return;
+            }
+
+            _final.Show(ranked);
+        }
+
+        /// <summary>等待入場畫面上主持人輸入中的遊戲分鐘數。</summary>
+        public void ShowLobbyMinutes(string minutesText)
+        {
+            _lobby.SetGameMinutes(minutesText);
         }
 
         /// <summary>揭曉名次，每匹馬下面列出本場誰對牠用了什麼券、幾張。</summary>
@@ -264,28 +365,37 @@ namespace HorseRace.View
             }
         }
 
-        /// <summary>在名次面板下方列出本場獎項（結算時才有）。沒有獎項時清空。</summary>
+        /// <summary>
+        /// 在名次面板下方列出本場獎項（結算時才有）。獎項名、玩家名、說明各自一欄，
+        /// 三欄用同樣的字級與行距，名稱長短不同也會逐行對齊。沒有獎項時清空。
+        /// </summary>
         public void ShowAwards(IReadOnlyList<Award> awards)
         {
-            if (awards == null || awards.Count == 0)
+            System.Text.StringBuilder titles = new System.Text.StringBuilder();
+            System.Text.StringBuilder names = new System.Text.StringBuilder();
+            System.Text.StringBuilder details = new System.Text.StringBuilder();
+
+            for (int i = 0; awards != null && i < awards.Count; i++)
             {
-                _resultAwards.text = "";
-                return;
+                titles.Append(AwardText.Title(awards[i].Kind)).Append('\n');
+                names.Append(awards[i].Nickname).Append('\n');
+                details.Append(AwardText.Detail(awards[i])).Append('\n');
             }
 
-            System.Text.StringBuilder text = new System.Text.StringBuilder();
-            foreach (Award award in awards)
-            {
-                if (text.Length > 0)
-                {
-                    text.Append('\n');
-                }
+            _awardTitles.text = titles.ToString();
+            _awardNames.text = names.ToString();
+            _awardDetails.text = details.ToString();
+        }
 
-                text.Append(ItemStyle.Tint(AwardText.Title(award.Kind), "#E4B64A")).Append("　")
-                    .Append(award.Nickname).Append("　").Append(ItemStyle.Tint(AwardText.Detail(award), "#9AA4B4"));
-            }
-
-            _resultAwards.text = text.ToString();
+        /// <summary>獎項的一欄，三欄共用同一個上緣、字級與行距。</summary>
+        private Text AwardColumn(string name, float x, float width, Color color)
+        {
+            Text column = UiFactory.Label(_resultPanel, name, "", 30, TextAnchor.UpperLeft, color, FontStyle.Bold);
+            column.lineSpacing = 1.1f;
+            column.horizontalOverflow = HorizontalWrapMode.Overflow;
+            UiFactory.Place((RectTransform)column.transform, new Vector2(0f, 0f), new Vector2(0f, 0f),
+                new Vector2(x, 24f), new Vector2(width, AwardsHeight - 30f));
+            return column;
         }
 
         public void HideResult()
@@ -408,6 +518,12 @@ namespace HorseRace.View
                 new Vector2(124f, -31f), new Vector2(BarWidth, 5f),
                 DriveBarColor);
 
+            // 加速／減速／被絆住／前方障礙物的圖示，放在進度條右邊
+            row.Effects = UiFactory.Label(row.Root, "Effects", "", 24,
+                TextAnchor.MiddleRight, UiFactory.TextColor, FontStyle.Bold);
+            UiFactory.Place((RectTransform)row.Effects.transform, new Vector2(0f, 0.5f),
+                new Vector2(1f, 0.5f), new Vector2(PanelWidth - 28f, -24f), new Vector2(PanelWidth - 400f, 30f));
+
             return row;
         }
 
@@ -452,10 +568,9 @@ namespace HorseRace.View
                 UiFactory.ShrinkToFit(_resultUsage[position], 14);
             }
 
-            _resultAwards = UiFactory.Label(_resultPanel, "Awards", "", 30,
-                TextAnchor.UpperLeft, UiFactory.TextColor, FontStyle.Bold);
-            UiFactory.Place((RectTransform)_resultAwards.transform, new Vector2(0f, 0f), new Vector2(0f, 0f),
-                new Vector2(64f, 24f), new Vector2(ResultPanelWidth - 128f, AwardsHeight - 30f));
+            _awardTitles = AwardColumn("AwardTitles", 64f, 220f, UiFactory.AccentColor);
+            _awardNames = AwardColumn("AwardNames", 300f, 300f, UiFactory.TextColor);
+            _awardDetails = AwardColumn("AwardDetails", 620f, ResultPanelWidth - 680f, UiFactory.MutedTextColor);
 
             _resultPanel.gameObject.SetActive(false);
         }
@@ -610,6 +725,7 @@ namespace HorseRace.View
             UiFactory.Stretch(_nameTagLayer, 0f, 0f, 0f, 0f);
 
             _nameTags = new Text[laneCount];
+            _tagNames = new string[laneCount];
             for (int lane = 0; lane < laneCount; lane++)
             {
                 _nameTags[lane] = UiFactory.Label(_nameTagLayer, "Tag_" + lane, "", 28,
@@ -633,6 +749,8 @@ namespace HorseRace.View
             {
                 case RacePhase.Lobby:
                     return "等待開賽";
+                case RacePhase.GameOver:
+                    return "遊戲結束";
                 case RacePhase.Idle:
                     return "準備下一場";
                 case RacePhase.Betting:

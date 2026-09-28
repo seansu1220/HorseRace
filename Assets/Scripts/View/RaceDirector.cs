@@ -49,6 +49,12 @@ namespace HorseRace.View
         /// <summary>測試用的電腦玩家（B 加一個、N 加五個、M 全部移除）。</summary>
         private BotSquad _bots;
 
+        /// <summary>主持人在等待入場畫面輸入中的遊戲分鐘數（字串，方便逐字編輯）。</summary>
+        private string _gameMinutesInput = "";
+
+        /// <summary>遊戲分鐘數最多幾位數。</summary>
+        private const int MaxMinuteDigits = 3;
+
         /// <summary>實際使用的中繼伺服器位址（本機伺服器換埠時與設定檔不同），不含大螢幕金鑰。</summary>
         private string _relayUrl;
         private DriveMessage _driveMessage;
@@ -119,6 +125,7 @@ namespace HorseRace.View
             if (_loop != null)
             {
                 _loop.PhaseEntered -= OnPhaseEntered;
+                _loop.AllowanceGranted -= OnAllowanceGranted;
             }
 
             if (_relay != null)
@@ -143,6 +150,8 @@ namespace HorseRace.View
 
             _loop = new GameLoop(_config, seed);
             _loop.PhaseEntered += OnPhaseEntered;
+            _loop.AllowanceGranted += OnAllowanceGranted;
+            _gameMinutesInput = ((int)Math.Round(_config.Race.GameMinutes)).ToString();
             _bots = new BotSquad(_config.Bots, HandleInbound, seed);
             _debugRandom = new DeterministicRandom(seed ^ 0x5F3759D);
             _oddsTask = null;
@@ -160,6 +169,7 @@ namespace HorseRace.View
         private void Restart()
         {
             _loop.PhaseEntered -= OnPhaseEntered;
+            _loop.AllowanceGranted -= OnAllowanceGranted;
             TeardownScene();
 
             _config = ConfigLoader.Load();
@@ -208,7 +218,19 @@ namespace HorseRace.View
             }
 
             // 比賽中收起角落的 QRCode，讓出位置給用券播報；其他時候讓晚到的人隨時能掃
-            _hud.ShowJoinCorner(phase != RacePhase.Racing && phase != RacePhase.Lobby);
+            _hud.ShowJoinCorner(phase != RacePhase.Racing && phase != RacePhase.Lobby && phase != RacePhase.GameOver);
+
+            if (phase == RacePhase.GameOver)
+            {
+                List<PlayerAccount> ranked = _loop.Book.TopPlayers(FinalScreen.RankCount);
+                _hud.ShowFinal(ranked);
+                BroadcastFinal(ranked);
+                Debug.Log("[RaceDirector] 遊戲時間到，共進行 " + _loop.RaceNumber + " 場，遊戲結束。");
+            }
+            else
+            {
+                _hud.ShowFinal(null);
+            }
 
             BroadcastPhase();
         }
@@ -593,7 +615,7 @@ namespace HorseRace.View
         }
 
         /// <summary>把個人錢包送回該名玩家。帶 to 欄位，中繼站會定向轉發。</summary>
-        private void SendWallet(PlayerAccount account, string rejectReason)
+        private void SendWallet(PlayerAccount account, string rejectReason, int bonus = 0)
         {
             if (_relay == null || !_relay.IsConnected || account == null)
             {
@@ -622,7 +644,8 @@ namespace HorseRace.View
                 boostCool = _loop.ItemCooldownRemaining(account.PlayerId, ItemKind.Boost),
                 slowCool = _loop.ItemCooldownRemaining(account.PlayerId, ItemKind.Slow),
                 obstacleCool = _loop.ItemCooldownRemaining(account.PlayerId, ItemKind.Obstacle),
-                cheer = _loop.Cheer.IsMember(account.PlayerId)
+                cheer = _loop.Cheer.IsMember(account.PlayerId),
+                bonus = bonus
             };
 
             _relay.Send(JsonUtility.ToJson(message));
@@ -677,13 +700,40 @@ namespace HorseRace.View
         private const int LeaderboardSize = 5;
 
         /// <summary>把每個人的錢包各自送回去（帶 to，中繼站只轉給本人）。</summary>
-        private void SendAllWallets()
+        private void SendAllWallets(int bonus = 0)
         {
             IReadOnlyList<PlayerAccount> players = _loop.Book.Players;
             for (int i = 0; i < players.Count; i++)
             {
-                SendWallet(players[i], null);
+                SendWallet(players[i], null, bonus);
             }
+        }
+
+        /// <summary>發零用金：大螢幕公告，並把新的錢包送給每個人（手機會跳出 +50 提示）。</summary>
+        private void OnAllowanceGranted(int amount)
+        {
+            _hud.FlashNotice("零用金時間！每位玩家 +" + amount + " 籌碼");
+            SendAllWallets(amount);
+            Debug.Log("[RaceDirector] 發零用金：" + _loop.Book.PlayerCount + " 位玩家各 +" + amount + "。");
+        }
+
+        /// <summary>遊戲結束：廣播最終排名，並送出每個人的最終錢包。</summary>
+        private void BroadcastFinal(List<PlayerAccount> ranked)
+        {
+            if (_relay == null || !_relay.IsConnected)
+            {
+                return;
+            }
+
+            SendAllWallets();
+
+            LeaderEntry[] top = new LeaderEntry[ranked.Count];
+            for (int i = 0; i < ranked.Count; i++)
+            {
+                top[i] = new LeaderEntry { name = ranked[i].Nickname, balance = ranked[i].Balance };
+            }
+
+            _relay.Send(JsonUtility.ToJson(new FinalMessage { top = top }));
         }
 
         /// <summary>依名次排列的完賽秒數，與 FinishOrder 一一對應。</summary>
@@ -795,7 +845,11 @@ namespace HorseRace.View
             int count = race.HorseCount;
             if (_driveMessage == null || _driveMessage.d == null || _driveMessage.d.Length != count)
             {
-                _driveMessage = new DriveMessage { d = new float[count], p = new float[count], fx = new int[count] };
+                _driveMessage = new DriveMessage
+                {
+                    d = new float[count], p = new float[count], fx = new int[count],
+                    up = new int[count], down = new int[count], obs = new int[count]
+                };
             }
 
             for (int lane = 0; lane < count; lane++)
@@ -804,9 +858,27 @@ namespace HorseRace.View
                 _driveMessage.d[lane] = (float)race.DriveLevelOf(lane);
                 _driveMessage.p[lane] = (float)horse.Progress01;
                 _driveMessage.fx[lane] = EffectFlagsOf(horse);
+                _driveMessage.up[lane] = CountEffects(horse, EffectKind.Boost);
+                _driveMessage.down[lane] = CountEffects(horse, EffectKind.Slow);
+                _driveMessage.obs[lane] = horse.Obstacles.Count;
             }
 
             _relay.Send(JsonUtility.ToJson(_driveMessage));
+        }
+
+        /// <summary>這匹馬身上某種效果有幾個（幾個人同時加速就是幾個）。</summary>
+        private static int CountEffects(HorseState horse, EffectKind kind)
+        {
+            int count = 0;
+            for (int i = 0; i < horse.Effects.Count; i++)
+            {
+                if (horse.Effects[i].Kind == kind)
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         private static int EffectFlagsOf(HorseState horse)
@@ -1014,7 +1086,9 @@ namespace HorseRace.View
 
         private void UpdateHud()
         {
+            _hud.SetGameClock(DescribeGameClock());
             _hud.ShowPhase(_loop.Phase, _loop.PhaseRemainingSeconds, _loop.RaceNumber);
+            UpdateHorseEffects();
 
             if (_loop.Race == null)
             {
@@ -1158,6 +1232,82 @@ namespace HorseRace.View
 
         // ---- 除錯輸入 ----
 
+        /// <summary>頂部場次後面的遊戲時間：「剩餘 12:34」、時間到之後是「最後一場」；不限時則不顯示。</summary>
+        private string DescribeGameClock()
+        {
+            double remaining = _loop.GameRemainingSeconds;
+            if (remaining < 0.0 || _loop.Phase == RacePhase.Lobby || _loop.Phase == RacePhase.GameOver)
+            {
+                return "";
+            }
+
+            if (_loop.IsTimeUp)
+            {
+                return "最後一場";
+            }
+
+            int seconds = (int)Math.Ceiling(remaining);
+            return "剩餘 " + (seconds / 60) + ":" + (seconds % 60).ToString("00");
+        }
+
+        /// <summary>左側名單與馬頭名牌上的效果圖示。只有比賽中才有，其他時候清空。</summary>
+        private void UpdateHorseEffects()
+        {
+            RaceEngine race = _loop.Phase == RacePhase.Racing ? _loop.Race : null;
+            int laneCount = _horseViews.Length;
+            for (int lane = 0; lane < laneCount; lane++)
+            {
+                if (race == null || lane >= race.HorseCount)
+                {
+                    _hud.ShowEffects(lane, 0, 0, false, 0);
+                    continue;
+                }
+
+                HorseState horse = race.Horses[lane];
+                _hud.ShowEffects(lane, CountEffects(horse, EffectKind.Boost), CountEffects(horse, EffectKind.Slow),
+                    horse.StunRemaining > 0.0, horse.Obstacles.Count);
+            }
+        }
+
+        /// <summary>等待入場時主持人輸入遊戲分鐘數：直接打數字、Backspace 刪除、↑↓ 加減 1。</summary>
+        private void HandleMinutesInput()
+        {
+            foreach (char typed in Input.inputString)
+            {
+                if (typed == '\b')
+                {
+                    if (_gameMinutesInput.Length > 0)
+                    {
+                        _gameMinutesInput = _gameMinutesInput.Substring(0, _gameMinutesInput.Length - 1);
+                    }
+                }
+                else if (char.IsDigit(typed) && _gameMinutesInput.Length < MaxMinuteDigits)
+                {
+                    // 目前是 0 時直接換成新打的數字，不會變成「05」
+                    _gameMinutesInput = _gameMinutesInput == "0" ? typed.ToString() : _gameMinutesInput + typed;
+                }
+            }
+
+            int minutes = ParseGameMinutes();
+            if (Input.GetKeyDown(KeyCode.UpArrow))
+            {
+                _gameMinutesInput = Math.Min(minutes + 1, 999).ToString();
+            }
+            else if (Input.GetKeyDown(KeyCode.DownArrow))
+            {
+                _gameMinutesInput = Math.Max(minutes - 1, 0).ToString();
+            }
+
+            _hud.ShowLobbyMinutes(_gameMinutesInput);
+        }
+
+        /// <summary>輸入框的分鐘數；空白視為 0（不限時）。</summary>
+        private int ParseGameMinutes()
+        {
+            int minutes;
+            return int.TryParse(_gameMinutesInput, out minutes) && minutes > 0 ? minutes : 0;
+        }
+
         private void HandleDebugInput()
         {
             if (Input.GetKeyDown(KeyCode.Escape))
@@ -1174,11 +1324,15 @@ namespace HorseRace.View
             if (_loop.Phase == RacePhase.Lobby)
             {
                 HandleBotKeys();
+                HandleMinutesInput();
 
                 if (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return)
                     || Input.GetKeyDown(KeyCode.KeypadEnter))
                 {
-                    Debug.Log("[RaceDirector] 主持人開始第一場，目前 " + _loop.Book.PlayerCount + " 人入場。");
+                    int minutes = ParseGameMinutes();
+                    _loop.SetGameMinutes(minutes);
+                    Debug.Log("[RaceDirector] 主持人開始第一場，目前 " + _loop.Book.PlayerCount + " 人入場，遊戲時間 "
+                              + (minutes > 0 ? minutes + " 分鐘" : "不限") + "。");
                     _loop.StartFromLobby();
                 }
 

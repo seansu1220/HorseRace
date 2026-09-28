@@ -92,6 +92,10 @@ const state = {
   usage: [],
   awards: [],
   leaders: [],
+  finalTop: [],
+  upCounts: [],
+  downCounts: [],
+  obstacleCounts: [],
 };
 
 localStorage.setItem('pid', state.playerId);
@@ -102,7 +106,8 @@ function createId() {
 
 const dom = {};
 for (const id of [
-  'phaseLabel', 'countdown', 'balanceBox', 'balance', 'connection',
+  'phaseLabel', 'countdown', 'balanceBox', 'balance', 'bonusFlash', 'connection',
+  'endScreen', 'endChips', 'endLine', 'endBoard',
   'joinScreen', 'nickInput', 'joinButton',
   'waitScreen', 'waitWho', 'waitBalance', 'waitHint', 'waitCrowd', 'waitCount', 'waitListTitle', 'waitList',
   'betScreen', 'chipTray', 'customBox', 'customAmount', 'oddsList', 'betNote',
@@ -207,6 +212,10 @@ function handleMessage(message) {
     case 'drive':
       onRaceSnapshot(message);
       break;
+    case 'final':
+      state.finalTop = Array.isArray(message.top) ? message.top : [];
+      render();
+      break;
     case 'result':
       state.finishOrder = Array.isArray(message.order) ? message.order : [];
       state.finishTimes = Array.isArray(message.times) ? message.times : [];
@@ -281,6 +290,7 @@ function onWallet(message) {
   state.delta = message.delta | 0;
   state.payout = message.payout | 0;
   state.cheer = !!message.cheer;
+  if (message.bonus > 0) flashBonus(message.bonus);
   if (message.nick) {
     state.nickname = message.nick;
     localStorage.setItem('nick', state.nickname);
@@ -303,6 +313,9 @@ function onRaceSnapshot(message) {
   if (Array.isArray(message.d)) state.driveLevels = message.d;
   if (Array.isArray(message.p)) state.progress = message.p;
   if (Array.isArray(message.fx)) state.effects = message.fx;
+  state.upCounts = Array.isArray(message.up) ? message.up : [];
+  state.downCounts = Array.isArray(message.down) ? message.down : [];
+  state.obstacleCounts = Array.isArray(message.obs) ? message.obs : [];
   if (state.phase === 'racing') renderRace();
 }
 
@@ -370,6 +383,7 @@ const PHASE_TITLES = {
   racing: '比賽中',
   photo: '衝線',
   settle: '結算',
+  gameover: '遊戲結束',
 };
 
 function showScreen(name) {
@@ -378,6 +392,7 @@ function showScreen(name) {
   dom.betScreen.hidden = name !== 'bet';
   dom.raceScreen.hidden = name !== 'race';
   dom.resultScreen.hidden = name !== 'result';
+  dom.endScreen.hidden = name !== 'end';
 }
 
 function render() {
@@ -401,6 +416,10 @@ function render() {
     case 'settle':
       showScreen('result');
       renderResult();
+      break;
+    case 'gameover':
+      showScreen('end');
+      renderEnd();
       break;
     default:
       showScreen('wait');
@@ -729,19 +748,32 @@ function renderField() {
 
     row.querySelector('.track i').style.width = Math.round((state.progress[lane] || 0) * 100) + '%';
 
-    // 位元旗標：1 加速中、2 減速中、4 撞到障礙物停住、8 前方有障礙物（見 Messages.cs 的 EffectFlags）
-    const flags = state.effects[lane] | 0;
+    // 有幾個效果就畫幾個圖示（幾個人同時加速就有幾個 ▲），太多改成「▲×10」；
+    // 被絆住用位元旗標 4（見 Messages.cs 的 EffectFlags）
+    const ups = state.upCounts[lane] | 0;
+    const downs = state.downCounts[lane] | 0;
+    const obstacles = state.obstacleCounts[lane] | 0;
+    const stunned = ((state.effects[lane] | 0) & 4) !== 0;
     const fx = row.querySelector('.fx');
-    const wanted = String(flags);
+    const wanted = `${ups},${downs},${stunned ? 1 : 0},${obstacles}`;
     if (fx.dataset.flags !== wanted) {
       fx.dataset.flags = wanted;
       fx.textContent = '';
-      if (flags & 4) fx.append(el('i', 'stun', '暈'));
-      else if (flags & 8) fx.append(el('i', 'block', '▮'));
-      if (flags & 1) fx.append(el('i', 'up', '▲'));
-      if (flags & 2) fx.append(el('i', 'down', '▼'));
+      appendBadge(fx, 'up', '▲', ups);
+      appendBadge(fx, 'down', '▼', downs);
+      appendBadge(fx, 'stun', '暈', stunned ? 1 : 0);
+      appendBadge(fx, 'block', '■', obstacles);
     }
   }
+}
+
+/** 同一種效果最多逐一畫幾個圖示，再多就改成「▲×10」。與大螢幕的規則相同。 */
+const MAX_REPEATED_ICONS = 3;
+
+function appendBadge(container, className, icon, count) {
+  if (count <= 0) return;
+  const text = count <= MAX_REPEATED_ICONS ? icon.repeat(count) : `${icon}×${count}`;
+  container.append(el('i', className, text));
 }
 
 // ---- 買券：券和馬都選好才使用 ----
@@ -987,11 +1019,36 @@ function renderResult() {
 function renderAwards() {
   dom.awardList.textContent = '';
   dom.awardsTitle.hidden = state.awards.length === 0;
+  // 三個格子一列，放進同一個三欄 grid：獎項名、玩家名、說明各自對齊
   for (const award of state.awards) {
-    const item = el('div', 'award');
-    item.append(el('b', '', award.title), el('span', '', award.name), el('small', '', award.detail));
-    dom.awardList.append(item);
+    dom.awardList.append(el('span', 'a-title', award.title), el('span', 'a-name', award.name),
+      el('span', 'a-detail', award.detail));
   }
+}
+
+/** 遊戲結束：自己的最終籌碼、名次（在前幾名時）與最終排名。 */
+function renderEnd() {
+  dom.endChips.textContent = `${formatChips(state.balance)} 籌碼`;
+  const rank = state.finalTop.findIndex((entry) => entry.name === state.nickname);
+  dom.endLine.textContent = rank >= 0 ? `你是第 ${rank + 1} 名！感謝參與` : '感謝參與！';
+
+  dom.endBoard.textContent = '';
+  state.finalTop.forEach((entry, index) => {
+    const you = entry.name === state.nickname;
+    const row = el('div', you ? 'entry you' : 'entry');
+    row.append(el('span', 'n', String(index + 1)), el('span', '', you ? `${entry.name}（你）` : entry.name),
+      el('span', 'v', formatChips(entry.balance)));
+    dom.endBoard.append(row);
+  });
+}
+
+let bonusTimer = 0;
+/** 發零用金時在餘額下方跳出「+50 零用金」。 */
+function flashBonus(amount) {
+  dom.bonusFlash.textContent = `+${formatChips(amount)} 零用金`;
+  dom.bonusFlash.hidden = false;
+  clearTimeout(bonusTimer);
+  bonusTimer = setTimeout(() => { dom.bonusFlash.hidden = true; }, 2500);
 }
 
 /** 某匹馬本場被誰用了什麼券：「加速 阿明×2、小美×1　減速 老王×2」。沒人用過就不顯示。 */

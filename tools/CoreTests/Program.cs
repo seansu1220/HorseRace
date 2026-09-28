@@ -44,6 +44,7 @@ namespace HorseRace.Tests
             CheerTests();
             AwardTests();
             BotTests();
+            GameClockTests();
 
             Console.WriteLine();
             if (Failures.Count == 0)
@@ -1527,6 +1528,122 @@ namespace HorseRace.Tests
 
             Check("移除玩家", book.Remove("bot-0") && book.Find("bot-0") == null && book.PlayerCount == 4);
             Check("移除不存在的玩家不會出錯", !book.Remove("nobody"));
+        }
+
+        // ---------------------------------------------------------------- 零用金與遊戲時限
+
+        private static GameConfig FastConfig()
+        {
+            GameConfig config = DefaultConfig();
+            config.Race.IdleSeconds = 0.5;
+            config.Race.BettingSeconds = 0.5;
+            config.Race.PhotoSeconds = 0.5;
+            config.Race.SettleSeconds = 0.5;
+            return config;
+        }
+
+        private static void GameClockTests()
+        {
+            Section("零用金與遊戲時限");
+
+            GameConfig defaults = DefaultConfig();
+            Check("預設每 30 秒發 50 籌碼、遊戲 30 分鐘",
+                Math.Abs(defaults.Race.AllowanceIntervalSeconds - 30.0) < 1e-12
+                && defaults.Race.AllowanceChips == 50 && Math.Abs(defaults.Race.GameMinutes - 30.0) < 1e-12);
+
+            // --- 零用金 ---
+            GameConfig config = DefaultConfig();
+            config.Race.GameMinutes = 0.0; // 不限時，專心測零用金
+            GameLoop loop = new GameLoop(config, 121);
+            PlayerAccount alice = loop.Book.Join("a", "阿明");
+            PlayerAccount bob = loop.Book.Join("b", "小美");
+            int grants = 0;
+            loop.AllowanceGranted += amount => grants++;
+
+            loop.Tick(100.0);
+            Check("等待入場時不發零用金", grants == 0 && alice.Balance == 1000);
+
+            loop.StartFromLobby();
+            for (int i = 0; i < 610; i++)
+            {
+                loop.Tick(0.1); // 61 秒
+            }
+
+            Check("61 秒發了 2 次零用金（實得 " + grants + " 次）", grants == 2);
+            int expected = config.Race.StartingChips + 2 * config.Race.AllowanceChips;
+            Check("每位玩家都拿到兩次（兩人都沒下注，應剛好 " + expected + "）",
+                alice.Balance == expected && bob.Balance == expected);
+
+            GameConfig noAllowance = DefaultConfig();
+            noAllowance.Race.AllowanceIntervalSeconds = 0.0;
+            noAllowance.Race.WaitForHostToStart = false;
+            GameLoop stingy = new GameLoop(noAllowance, 122);
+            PlayerAccount carol = stingy.Book.Join("c", "老王");
+            int stingyGrants = 0;
+            stingy.AllowanceGranted += amount => stingyGrants++;
+            stingy.Tick(0.1);
+            stingy.Tick(0.1);
+            Check("間隔設 0 時不發", stingyGrants == 0 && carol.Balance == 1000);
+
+            // --- 設定遊戲時間 ---
+            GameLoop setter = new GameLoop(DefaultConfig(), 123);
+            Check("等待入場時可以設定遊戲分鐘數", setter.SetGameMinutes(12) && Math.Abs(setter.GameDurationSeconds - 720.0) < 1e-9);
+            setter.StartFromLobby();
+            Check("開始後不能再改", !setter.SetGameMinutes(99) && Math.Abs(setter.GameDurationSeconds - 720.0) < 1e-9);
+
+            GameLoop unlimited = new GameLoop(DefaultConfig(), 124);
+            unlimited.SetGameMinutes(0);
+            unlimited.StartFromLobby();
+            unlimited.Tick(5000.0);
+            Check("0 分鐘代表不限時", !unlimited.IsTimeUp && unlimited.GameRemainingSeconds < 0.0);
+
+            // --- 時間在比賽中途到期：把這一場打完才結束 ---
+            GameLoop midRace = new GameLoop(FastConfig(), 125);
+            midRace.SetGameMinutes(10.0 / 60.0); // 10 秒
+            midRace.Book.Join("a", "阿明");
+            List<RacePhase> visited = new List<RacePhase>();
+            midRace.PhaseEntered += visited.Add;
+            midRace.StartFromLobby();
+
+            bool racingWhenTimeUp = false;
+            for (int i = 0; i < 2000 && midRace.Phase != RacePhase.GameOver; i++)
+            {
+                midRace.Tick(0.05);
+                if (midRace.IsTimeUp && !racingWhenTimeUp && midRace.Phase == RacePhase.Racing)
+                {
+                    racingWhenTimeUp = true;
+                }
+            }
+
+            Check("時間在比賽中途到期", racingWhenTimeUp);
+            Check("那一場照樣跑完、結算完才結束",
+                midRace.Phase == RacePhase.GameOver
+                && visited.IndexOf(RacePhase.Photo) >= 0 && visited.IndexOf(RacePhase.Settle) >= 0
+                && visited[visited.Count - 1] == RacePhase.GameOver
+                && visited[visited.Count - 2] == RacePhase.Settle);
+            Check("沒有再開下一場", midRace.RaceNumber == 1);
+
+            int finalBalance = midRace.Book.Find("a").Balance;
+            midRace.Tick(120.0);
+            midRace.SkipPhase();
+            Check("遊戲結束後時間不再流動、不再發零用金、跳階段無效",
+                midRace.Phase == RacePhase.GameOver && midRace.Book.Find("a").Balance == finalBalance);
+
+            // --- 時間在兩場之間到期：直接結束，不開新的一場 ---
+            GameConfig slowIdle = FastConfig();
+            slowIdle.Race.IdleSeconds = 5.0;
+            GameLoop betweenRaces = new GameLoop(slowIdle, 126);
+            betweenRaces.SetGameMinutes(1.0 / 60.0); // 1 秒，第一場的待機還沒結束就到期
+            List<RacePhase> idleVisited = new List<RacePhase>();
+            betweenRaces.PhaseEntered += idleVisited.Add;
+            betweenRaces.StartFromLobby();
+            for (int i = 0; i < 100 && betweenRaces.Phase != RacePhase.GameOver; i++)
+            {
+                betweenRaces.Tick(0.05);
+            }
+
+            Check("兩場之間到期時直接結束，不開放下注",
+                betweenRaces.Phase == RacePhase.GameOver && idleVisited.IndexOf(RacePhase.Betting) < 0);
         }
 
         // ---------------------------------------------------------------- 開賽前等待入場

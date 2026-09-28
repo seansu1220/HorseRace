@@ -25,6 +25,7 @@ namespace HorseRace.Core.Protocol
         public const string Drive = "drive";
         public const string Wallet = "wallet";
         public const string Result = "result";
+        public const string Final = "final";
     }
 
     /// <summary>手機送上來的訊息。所有上行訊息共用這一個扁平結構。</summary>
@@ -174,6 +175,15 @@ namespace HorseRace.Core.Protocol
 
         /// <summary>道具狀態的位元旗標（見 <see cref="EffectFlags"/>），可同時成立。</summary>
         public int[] fx;
+
+        /// <summary>身上生效中的加速效果個數（幾個人同時加速就有幾個）。</summary>
+        public int[] up;
+
+        /// <summary>身上生效中的減速效果個數。</summary>
+        public int[] down;
+
+        /// <summary>前方等著的障礙物個數。</summary>
+        public int[] obs;
     }
 
     /// <summary><see cref="DriveMessage.fx"/> 的位元定義。</summary>
@@ -233,6 +243,9 @@ namespace HorseRace.Core.Protocol
 
         /// <summary>這一場是否已加入啦啦隊（比賽中能不能搖手機出力）。</summary>
         public bool cheer;
+
+        /// <summary>這次錢包是因為發零用金才送的：每人拿到的金額（手機跳出提示用）；其他時候為 0。</summary>
+        public int bonus;
     }
 
     /// <summary>排行榜的一列。</summary>
@@ -275,6 +288,14 @@ namespace HorseRace.Core.Protocol
 
         /// <summary>本場獎項。</summary>
         public AwardEntry[] awards;
+    }
+
+    /// <summary>遊戲時間到、最後一場結束後的最終排名，廣播給所有手機。</summary>
+    [Serializable]
+    public sealed class FinalMessage
+    {
+        public string t = MessageType.Final;
+        public LeaderEntry[] top;
     }
 
     /// <summary>一個獎項：顯示用的名稱、得主與成績說明（文字由大螢幕產生，手機直接顯示）。</summary>

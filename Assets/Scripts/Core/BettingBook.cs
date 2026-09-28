@@ -73,6 +73,20 @@ namespace HorseRace.Core
             get { return _order; }
         }
 
+        /// <summary>發零用金給所有玩家。</summary>
+        public void GrantAll(int chips)
+        {
+            if (chips <= 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _order.Count; i++)
+            {
+                _order[i].Balance += chips;
+            }
+        }
+
         /// <summary>移除一名玩家（測試用的電腦玩家退場時用）。找不到就什麼都不做。</summary>
         public bool Remove(string playerId)
         {

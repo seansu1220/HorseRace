@@ -30,6 +30,7 @@ namespace HorseRace.View
         private Text _connectionLabel;
         private Text _countLabel;
         private Text _namesLabel;
+        private Text _minutesLabel;
         private int _shownPlayerCount = -1;
 
         /// <summary>在指定畫布下建立（預設隱藏）。請最後建立，才會蓋在其他介面之上。</summary>
@@ -59,6 +60,16 @@ namespace HorseRace.View
             _qrPlaceholder.gameObject.SetActive(qrCode == null);
             _qrPlaceholder.text = string.IsNullOrEmpty(caption) ? "連線準備中…" : caption;
             _urlLabel.text = qrCode != null ? caption : "";
+        }
+
+        /// <summary>顯示主持人正在輸入的遊戲時間（分鐘，0 = 不限時）。</summary>
+        public void SetGameMinutes(string minutesText)
+        {
+            string value = string.IsNullOrEmpty(minutesText) ? "_" : minutesText;
+            bool unlimited = minutesText == "0";
+            _minutesLabel.text = "遊戲時間　<size=46><color=#E4B64A>" + value + "</color></size> 分鐘"
+                                 + (unlimited ? "（不限時）" : "")
+                                 + "　<size=22><color=#9AA4B4>直接打數字修改、↑↓ 加減，0＝不限時</color></size>";
         }
 
         public void SetConnection(bool connected, string detail)
@@ -152,6 +163,8 @@ namespace HorseRace.View
             RectTransform hintBar = UiFactory.Panel(_root, "HostHint", new Color(1f, 1f, 1f, 0.06f));
             UiFactory.Place(hintBar, new Vector2(0.5f, 0.5f), new Vector2(0f, 0.5f),
                 new Vector2(InfoColumnLeft, -325f), new Vector2(760f, 76f));
+
+            _minutesLabel = AddLabel("Minutes", "", 30, UiFactory.TextColor, FontStyle.Bold, -415f, 60f);
 
             Text hint = UiFactory.Label(hintBar, "Text", "主持人：人到齊後按 空白鍵 開始第一場", 34,
                 TextAnchor.MiddleLeft, UiFactory.AccentColor, FontStyle.Bold);

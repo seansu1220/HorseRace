@@ -121,6 +121,18 @@ namespace HorseRace.Core
         /// </summary>
         public int CharityChips = 200;
 
+        /// <summary>零用金：遊戲開始後每隔這麼多秒發給每位玩家。0 代表不發。</summary>
+        public double AllowanceIntervalSeconds = 30.0;
+
+        /// <summary>每次發給每位玩家的零用金。</summary>
+        public int AllowanceChips = 50;
+
+        /// <summary>
+        /// 遊戲時間（分鐘）的預設值，主持人在開賽前的等待入場畫面可以改。0 代表不限時。
+        /// 時間到時若比賽進行到一半，會把那一場打完才結束。
+        /// </summary>
+        public double GameMinutes = 30.0;
+
         /// <summary>抽水率。賠率整體的平衡閥門，調高則玩家長期期望值下降。</summary>
         public double TakeRate = 0.15;
 
@@ -167,6 +179,9 @@ namespace HorseRace.Core
             StartingChips = ConfigMath.Clamp(StartingChips, 1, 1000000);
             MinimumBet = ConfigMath.Clamp(MinimumBet, 1, StartingChips);
             CharityChips = ConfigMath.Clamp(CharityChips, 0, StartingChips);
+            AllowanceIntervalSeconds = ConfigMath.Clamp(AllowanceIntervalSeconds, 0.0, 3600.0);
+            AllowanceChips = ConfigMath.Clamp(AllowanceChips, 0, 1000000);
+            GameMinutes = ConfigMath.Clamp(GameMinutes, 0.0, 999.0);
             TakeRate = ConfigMath.Clamp(TakeRate, 0.0, 0.5);
             OddsSimulationRuns = ConfigMath.Clamp(OddsSimulationRuns, 50, 50000);
             MinOdds = ConfigMath.Clamp(MinOdds, 1.0, 100.0);

@@ -18,6 +18,7 @@
     <span id="phaseLabel" class="phase">連線中…</span>
     <span id="countdown" class="clock"></span>
     <span id="balanceBox" class="chips" hidden><span class="coin"></span><span id="balance">0</span></span>
+    <span id="bonusFlash" class="bonus-flash" hidden></span>
     <span id="connection" class="dot offline" title="連線狀態"></span>
   </header>
 
@@ -131,6 +132,17 @@
     <div id="awardList" class="awards"></div>
     <span class="label">籌碼排行</span>
     <div id="leaderList" class="board"></div>
+  </section>
+
+  <!-- 6 遊戲結束：時間到、最後一場打完之後 -->
+  <section id="endScreen" class="screen" hidden>
+    <div class="verdict">
+      <span class="label">遊戲結束</span>
+      <span id="endChips" class="delta win"></span>
+      <p id="endLine"></p>
+    </div>
+    <span class="label">最終排名</span>
+    <div id="endBoard" class="board"></div>
   </section>
 
   <script src="app.js"></script>
