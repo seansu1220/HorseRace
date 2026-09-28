@@ -186,12 +186,15 @@ namespace HorseRace.View
             ReleaseVideo();
         }
 
+        /// <summary>
+        /// 只接受鍵盤（空白鍵、Enter）略過。滑鼠點擊不算：主持人在大螢幕旁點視窗取得焦點、
+        /// 或誤觸滑鼠時，不該把開場動畫直接跳掉。
+        /// </summary>
         private static bool SkipRequested()
         {
             return Input.GetKeyDown(KeyCode.Space)
                    || Input.GetKeyDown(KeyCode.Return)
-                   || Input.GetKeyDown(KeyCode.KeypadEnter)
-                   || Input.GetMouseButtonDown(0);
+                   || Input.GetKeyDown(KeyCode.KeypadEnter);
         }
 
         // ---- 結束 ----

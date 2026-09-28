@@ -267,8 +267,9 @@ namespace HorseRace.Core
         /// <summary>
         /// 暱稱來自現場的手機，必須當成不可信的輸入處理：
         /// 去掉控制字元、限制長度，空的就給預設名字。
+        /// 長度以「字」計（emoji 等 UTF-16 代理對算一個字，不會被從中間切斷），與手機端的限制一致。
         /// </summary>
-        private static string Sanitize(string nickname)
+        public static string Sanitize(string nickname)
         {
             if (string.IsNullOrEmpty(nickname))
             {
@@ -276,12 +277,26 @@ namespace HorseRace.Core
             }
 
             System.Text.StringBuilder cleaned = new System.Text.StringBuilder();
-            for (int i = 0; i < nickname.Length && cleaned.Length < MaxNicknameLength; i++)
+            int characters = 0;
+            for (int i = 0; i < nickname.Length && characters < MaxNicknameLength; i++)
             {
                 char character = nickname[i];
-                if (!char.IsControl(character))
+                if (char.IsHighSurrogate(character))
+                {
+                    if (i + 1 < nickname.Length && char.IsLowSurrogate(nickname[i + 1]))
+                    {
+                        cleaned.Append(character).Append(nickname[i + 1]);
+                        characters++;
+                    }
+
+                    i++; // 成對的已經放進去；落單的高位代理是壞字元，連同下一格一起丟掉
+                    continue;
+                }
+
+                if (!char.IsControl(character) && !char.IsSurrogate(character))
                 {
                     cleaned.Append(character);
+                    characters++;
                 }
             }
 
@@ -289,6 +304,7 @@ namespace HorseRace.Core
             return result.Length == 0 ? "路人" : result;
         }
 
+        /// <summary>暱稱最多幾個字（手機輸入框也是同樣上限）。</summary>
         public const int MaxNicknameLength = 10;
     }
 }

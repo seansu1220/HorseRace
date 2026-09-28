@@ -538,6 +538,7 @@ namespace HorseRace.Tests
 
             GameConfig config = DefaultConfig();
             RaceConfig race = config.Race;
+            race.CharityChips = 200; // 預設已關閉（改由零用金取代），這裡明確開啟以測試機制本身
             BettingBook book = new BettingBook(race);
 
             PlayerAccount ming = book.Join("p1", "阿明");
@@ -557,6 +558,13 @@ namespace HorseRace.Tests
                 messy.Nickname.IndexOf('') < 0
                 && messy.Nickname.IndexOf(' ') < 0
                 && messy.Nickname.Length <= BettingBook.MaxNicknameLength);
+            Check("暱稱最多 10 個字，超過截斷", BettingBook.Sanitize("一二三四五六七八九十十一十二") == "一二三四五六七八九十");
+            Check("剛好 10 個字不截斷", BettingBook.Sanitize("ABCDEFGHIJ") == "ABCDEFGHIJ");
+            string horseEmoji = char.ConvertFromUtf32(0x1F40E);
+            string emojiName = BettingBook.Sanitize(string.Concat(System.Linq.Enumerable.Repeat(horseEmoji, 12)));
+            Check("emoji 算一個字且不會被切成半個",
+                emojiName == string.Concat(System.Linq.Enumerable.Repeat(horseEmoji, 10)));
+            Check("落單的代理字元會被丟掉", BettingBook.Sanitize("馬" + (char)0xD83D) == "馬");
 
             // --- 下注 ---
             book.BeginRace();
@@ -1562,9 +1570,10 @@ namespace HorseRace.Tests
             Section("零用金與遊戲時限");
 
             GameConfig defaults = DefaultConfig();
-            Check("預設每 30 秒發 50 籌碼、遊戲 10 分鐘",
+            Check("預設每 30 秒發 100 籌碼、遊戲 15 分鐘、不發同情籌碼",
                 Math.Abs(defaults.Race.AllowanceIntervalSeconds - 30.0) < 1e-12
-                && defaults.Race.AllowanceChips == 50 && Math.Abs(defaults.Race.GameMinutes - 10.0) < 1e-12);
+                && defaults.Race.AllowanceChips == 100 && Math.Abs(defaults.Race.GameMinutes - 15.0) < 1e-12
+                && defaults.Race.CharityChips == 0);
 
             // --- 零用金 ---
             GameConfig config = DefaultConfig();

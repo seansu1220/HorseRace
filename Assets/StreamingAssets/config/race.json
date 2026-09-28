@@ -26,10 +26,10 @@
 
     "StartingChips": 1000,
     "MinimumBet": 1,
-    "CharityChips": 200,
+    "CharityChips": 0,
     "AllowanceIntervalSeconds": 30.0,
-    "AllowanceChips": 50,
-    "GameMinutes": 10.0,
+    "AllowanceChips": 100,
+    "GameMinutes": 15.0,
     "TakeRate": 0.15,
     "OddsSimulationRuns": 1500,
     "MinOdds": 1.05,

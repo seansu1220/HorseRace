@@ -1104,10 +1104,27 @@ function winnerLine(won) {
 
 // ---------------------------------------------------------------- 進場
 
+/** 暱稱最多幾個字，與 BettingBook.MaxNicknameLength 相同（emoji 算一個字）。 */
+const MAX_NICKNAME_CHARS = 10;
+
+function clampNickname(text) {
+  return Array.from(text).slice(0, MAX_NICKNAME_CHARS).join('');
+}
+
+/** 輸入中文時選字還沒完成不能截，否則注音會被切斷；選完字（compositionend）再截。 */
+function enforceNicknameLimit(event) {
+  if (event && event.isComposing) return;
+  const clamped = clampNickname(dom.nickInput.value);
+  if (clamped !== dom.nickInput.value) dom.nickInput.value = clamped;
+}
+
+state.nickname = clampNickname(state.nickname); // 舊版存下的暱稱可能超過上限
 dom.nickInput.value = state.nickname;
+dom.nickInput.addEventListener('input', enforceNicknameLimit);
+dom.nickInput.addEventListener('compositionend', () => enforceNicknameLimit(null));
 
 function submitJoin() {
-  const nickname = dom.nickInput.value.trim();
+  const nickname = clampNickname(dom.nickInput.value.trim()).trim();
   if (nickname.length === 0) {
     dom.nickInput.focus();
     return;

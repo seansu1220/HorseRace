@@ -12,11 +12,13 @@ namespace HorseRace.View
     /// </summary>
     public sealed class LobbyScreen
     {
-        /// <summary>名字牆最多顯示幾個人。現場最愛看自己的名字出現在大螢幕上，但太多會擠成一團。</summary>
-        private const int RecentNameCount = 10;
-
         /// <summary>右欄所有元素共用的左緣，名字再長也不會把標題推歪。</summary>
         private const float InfoColumnLeft = -20f;
+
+        /// <summary>右欄文字的寬度；「最新加入」的名字只排一行，排不下的就不列。</summary>
+        private const float InfoColumnWidth = 760f;
+
+        private const string NameSeparator = "、";
 
         private static readonly Color OverlayColor = new Color(0.03f, 0.06f, 0.045f, 0.92f);
         private static readonly Color InkColor = new Color(0.17f, 0.15f, 0.10f);
@@ -29,6 +31,7 @@ namespace HorseRace.View
         private Text _urlLabel;
         private Text _connectionLabel;
         private Text _countLabel;
+        private Text _recentTitle;
         private Text _namesLabel;
         private Text _minutesLabel;
         private int _shownPlayerCount = -1;
@@ -88,16 +91,22 @@ namespace HorseRace.View
 
             _shownPlayerCount = count;
             _countLabel.text = "<size=190><b>" + count + "</b></size>  人已入場";
-            _namesLabel.text = count == 0 ? "還沒有人入場，第一個就是你" : "最新加入　" + JoinRecentNames(players);
+            _recentTitle.gameObject.SetActive(count > 0);
+            _namesLabel.text = count == 0 ? "還沒有人入場，第一個就是你" : FitRecentNamesOnOneLine(players);
         }
 
-        private static string JoinRecentNames(IReadOnlyList<PlayerAccount> players)
+        /// <summary>
+        /// 由新到舊排名字（剛掃進來的人立刻看得到自己），只排一行：
+        /// 下一個名字放不下就停，不換行、也不會出現被切一半的名字。
+        /// </summary>
+        private string FitRecentNamesOnOneLine(IReadOnlyList<PlayerAccount> players)
         {
-            StringBuilder names = new StringBuilder();
-            int shown = 0;
+            TextGenerationSettings settings = _namesLabel.GetGenerationSettings(Vector2.zero);
+            TextGenerator measurer = _namesLabel.cachedTextGeneratorForLayout;
+            float maxWidth = InfoColumnWidth * _namesLabel.pixelsPerUnit;
 
-            // 由新到舊，剛掃進來的人立刻看得到自己
-            for (int i = players.Count - 1; i >= 0 && shown < RecentNameCount; i--)
+            StringBuilder names = new StringBuilder();
+            for (int i = players.Count - 1; i >= 0; i--)
             {
                 string nickname = players[i].Nickname;
                 if (string.IsNullOrEmpty(nickname))
@@ -105,13 +114,16 @@ namespace HorseRace.View
                     continue;
                 }
 
-                if (shown > 0)
+                string candidate = names.Length == 0
+                    ? nickname
+                    : names.ToString() + NameSeparator + nickname;
+                if (names.Length > 0 && measurer.GetPreferredWidth(candidate, settings) > maxWidth)
                 {
-                    names.Append("、");
+                    break;
                 }
 
-                names.Append(nickname);
-                shown++;
+                names.Length = 0;
+                names.Append(candidate);
             }
 
             return names.ToString();
@@ -156,8 +168,12 @@ namespace HorseRace.View
             AddLabel("Subtitle", "打開手機相機，對準左邊的 QRCode", 34, UiFactory.TextColor, FontStyle.Normal, 118f, 50f);
 
             _countLabel = AddLabel("Count", "", 46, UiFactory.TextColor, FontStyle.Normal, -20f, 220f);
-            _namesLabel = AddLabel("Names", "", 32, UiFactory.MutedTextColor, FontStyle.Normal, -190f, 110f);
-            _namesLabel.horizontalOverflow = HorizontalWrapMode.Wrap;
+            _recentTitle = AddLabel("RecentTitle", "最新加入", 26, UiFactory.MutedTextColor, FontStyle.Bold, -158f, 38f);
+            _recentTitle.gameObject.SetActive(false);
+
+            // 名字只排一行（排不下的由 FitRecentNamesOnOneLine 捨去），這裡不讓它自動換行
+            _namesLabel = AddLabel("Names", "", 34, UiFactory.TextColor, FontStyle.Normal, -204f, 52f);
+            _namesLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
             _namesLabel.verticalOverflow = VerticalWrapMode.Truncate;
 
             RectTransform hintBar = UiFactory.Panel(_root, "HostHint", new Color(1f, 1f, 1f, 0.06f));
@@ -177,7 +193,7 @@ namespace HorseRace.View
         {
             Text label = UiFactory.Label(_root, name, content, fontSize, TextAnchor.MiddleLeft, color, style);
             UiFactory.Place((RectTransform)label.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 0.5f),
-                new Vector2(InfoColumnLeft, y), new Vector2(760f, height));
+                new Vector2(InfoColumnLeft, y), new Vector2(InfoColumnWidth, height));
             return label;
         }
     }
