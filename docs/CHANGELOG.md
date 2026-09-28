@@ -25,6 +25,8 @@
 - 手機 `app.js` / `index.html`：暱稱以「字」截到 10 字（選字完成後才截，不切斷注音）；
   舊版存在 localStorage 的過長暱稱啟動時也截斷；提示「最多 10 字」
 - `docs/ARCHITECTURE.md`：零用金金額、同情籌碼預設關閉、遊戲時間預設
+- 結算素材 `Assets/Resources/Art/Results/*.png.meta`：Unity 預設把非 2 次方尺寸的圖縮放到最近的 2 次方
+  （緞帶 1200×220 會變 1024×256 而變形），改為 `nPOTScale: 0`（保持原尺寸）、關閉 mipmap、`alphaIsTransparency: 1`
 
 ### 驗證
 
