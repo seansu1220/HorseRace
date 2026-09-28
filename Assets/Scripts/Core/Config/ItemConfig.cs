@@ -12,10 +12,10 @@ namespace HorseRace.Core
     public sealed class ItemConfig
     {
         /// <summary>加速的速度倍率。</summary>
-        public double BoostMultiplier = 1.35;
+        public double BoostMultiplier = 1.2;
 
         /// <summary>絆腳的速度倍率。</summary>
-        public double SlowMultiplier = 0.60;
+        public double SlowMultiplier = 0.8;
 
         /// <summary>效果持續秒數。</summary>
         public double DurationSeconds = 2.0;

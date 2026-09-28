@@ -688,6 +688,7 @@ namespace HorseRace.View
             {
                 entries[i] = new AwardEntry
                 {
+                    kind = (int)awards[i].Kind,
                     title = AwardText.Title(awards[i].Kind),
                     name = awards[i].Nickname,
                     detail = AwardText.Detail(awards[i])
@@ -1088,6 +1089,7 @@ namespace HorseRace.View
         {
             _hud.SetGameClock(DescribeGameClock());
             _hud.ShowPhase(_loop.Phase, _loop.PhaseRemainingSeconds, _loop.RaceNumber);
+            _hud.SetResultCountdown(_loop.Phase == RacePhase.Settle ? _loop.PhaseRemainingSeconds : 0.0);
             UpdateHorseEffects();
 
             if (_loop.Race == null)

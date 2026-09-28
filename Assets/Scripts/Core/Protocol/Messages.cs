@@ -139,10 +139,10 @@ namespace HorseRace.Core.Protocol
         /// <summary>同一種券兩次購買之間的冷卻秒數（券面「轉一圈」的時間）。</summary>
         public double itemCooldown;
 
-        /// <summary>加速券的速度倍率，例如 1.35。</summary>
+        /// <summary>加速券的速度倍率，例如 1.2。</summary>
         public double boostX;
 
-        /// <summary>減速券的速度倍率，例如 0.6。</summary>
+        /// <summary>減速券的速度倍率，例如 0.8。</summary>
         public double slowX;
 
         /// <summary>障礙券的價格。</summary>
@@ -302,6 +302,11 @@ namespace HorseRace.Core.Protocol
     [Serializable]
     public sealed class AwardEntry
     {
+        /// <summary>
+        /// 獎項種類，即 <see cref="AwardKind"/> 的數值（0 券券富翁、1 最強啦啦隊、2 路霸、3 本場大贏家），
+        /// 手機用它挑獎項圖示。
+        /// </summary>
+        public int kind;
         public string title;
         public string name;
         public string detail;

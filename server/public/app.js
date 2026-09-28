@@ -55,7 +55,7 @@ const state = {
   players: 0,
   horses: [],
   rules: {
-    minBet: 1, itemCost: 5, itemSeconds: 2, itemCooldown: 2, boostX: 1.35, slowX: 0.6,
+    minBet: 1, itemCost: 5, itemSeconds: 2, itemCooldown: 2, boostX: 1.2, slowX: 0.8,
     obstacleCost: 10, obstacleSeconds: 2, obstacleCooldown: 2, cheerCost: 5,
   },
 
@@ -990,7 +990,7 @@ function renderResult() {
     swatch.style.background = horseColor(lane);
     const staked = stakeOn(lane);
     const seconds = state.finishTimes[index];
-    main.append(el('span', 'pos', String(index + 1)), swatch, el('span', '', horseName(lane)),
+    main.append(positionBadge(index), swatch, el('span', '', horseName(lane)),
       el('span', 'mine', staked > 0 ? `你押 ${formatChips(staked)}` : ''),
       el('span', 'time', seconds > 0 ? `${seconds.toFixed(2)} 秒` : ''));
     place.append(main);
@@ -1009,7 +1009,9 @@ function renderResult() {
   state.leaders.forEach((entry, index) => {
     const you = entry.name === state.nickname;
     const row = el('div', you ? 'entry you' : 'entry');
-    row.append(el('span', 'n', String(index + 1)), el('span', '', you ? `${entry.name}（你）` : entry.name),
+    const badge = positionBadge(index);
+    badge.classList.add('n');
+    row.append(badge, el('span', '', you ? `${entry.name}（你）` : entry.name),
       el('span', 'v', formatChips(entry.balance)));
     dom.leaderList.append(row);
   });
@@ -1019,11 +1021,36 @@ function renderResult() {
 function renderAwards() {
   dom.awardList.textContent = '';
   dom.awardsTitle.hidden = state.awards.length === 0;
-  // 三個格子一列，放進同一個三欄 grid：獎項名、玩家名、說明各自對齊
+  // 四個格子一列，放進同一個四欄 grid：圖示、獎項名、玩家名、說明各自對齊
   for (const award of state.awards) {
-    dom.awardList.append(el('span', 'a-title', award.title), el('span', 'a-name', award.name),
-      el('span', 'a-detail', award.detail));
+    dom.awardList.append(awardIcon(award.kind), el('span', 'a-title', award.title),
+      el('span', 'a-name', award.name), el('span', 'a-detail', award.detail));
   }
+}
+
+/** 獎項圖示檔名，索引即 Messages.cs 的 AwardEntry.kind（Core 的 AwardKind 數值）。 */
+const AWARD_ICONS = ['ticket_tycoon', 'top_cheerleader', 'roadblocker', 'big_winner'];
+const MEDAL_COUNT = 3;
+
+/** 圖片載入失敗時換成文字，網路差也不會出現破圖。 */
+function imageOr(className, src, fallbackText) {
+  const image = el('img', className);
+  image.alt = fallbackText;
+  image.src = src;
+  image.addEventListener('error', () => image.replaceWith(el('span', className + ' fallback', fallbackText)));
+  return image;
+}
+
+function awardIcon(kind) {
+  const name = AWARD_ICONS[kind];
+  return name ? imageOr('a-icon', `img/award_${name}.png`, '★') : el('span', 'a-icon', '');
+}
+
+/** 名次：前三名用獎牌圖，其餘顯示數字。 */
+function positionBadge(index) {
+  return index < MEDAL_COUNT
+    ? imageOr('pos medal', `img/medal_${index + 1}.png`, String(index + 1))
+    : el('span', 'pos', String(index + 1));
 }
 
 /** 遊戲結束：自己的最終籌碼、名次（在前幾名時）與最終排名。 */
@@ -1036,7 +1063,9 @@ function renderEnd() {
   state.finalTop.forEach((entry, index) => {
     const you = entry.name === state.nickname;
     const row = el('div', you ? 'entry you' : 'entry');
-    row.append(el('span', 'n', String(index + 1)), el('span', '', you ? `${entry.name}（你）` : entry.name),
+    const badge = positionBadge(index);
+    badge.classList.add('n');
+    row.append(badge, el('span', '', you ? `${entry.name}（你）` : entry.name),
       el('span', 'v', formatChips(entry.balance)));
     dom.endBoard.append(row);
   });

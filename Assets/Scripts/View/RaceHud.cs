@@ -40,13 +40,7 @@ namespace HorseRace.View
         private Text _listTitle;
         private HorseRow[] _rows;
 
-        private RectTransform _resultPanel;
-        private Text[] _resultRows;
-        private Text[] _resultUsage;
-        private Text _resultTitle;
-        private Text _awardTitles;
-        private Text _awardNames;
-        private Text _awardDetails;
+        private ResultBoard _resultBoard;
 
         private ItemFeed _itemFeed;
         private FinalScreen _final;
@@ -99,11 +93,15 @@ namespace HorseRace.View
             BuildTopBar();
             BuildHorseList(laneCount);
             BuildLeaderboard(laneCount);
+
+            // 名次／獎項看板：結算時的全螢幕背景會蓋住場景與左側名單，
+            // 但狀態列、播報、掃碼角落、提示、公告與遊戲時間在它之後建立，仍會顯示在最上層
+            _resultBoard = ResultBoard.Build(_canvas.transform, laneCount);
+
             BuildStatusLine();
             _itemFeed = ItemFeed.Build(_canvas.transform);
             BuildJoinCorner();
             BuildHint();
-            BuildResultPanel(laneCount);
 
             BuildNotice();
             BuildGameClock();
@@ -369,70 +367,31 @@ namespace HorseRace.View
         /// <summary>揭曉名次，每匹馬下面列出本場誰對牠用了什麼券、幾張。</summary>
         public void ShowResult(RaceEngine race, int[] finishOrder, IReadOnlyList<ItemUsageLine> usage)
         {
-            _resultPanel.gameObject.SetActive(true);
-            _resultTitle.text = "名 次";
-
-            for (int position = 0; position < _resultRows.Length; position++)
-            {
-                bool active = position < finishOrder.Length;
-                _resultRows[position].gameObject.SetActive(active);
-                _resultUsage[position].gameObject.SetActive(active);
-                if (!active)
-                {
-                    continue;
-                }
-
-                int lane = finishOrder[position];
-                HorseState horse = race.Horses[lane];
-                string horseName = _lineup != null && lane < _lineup.Length
-                    ? _lineup[lane].Name
-                    : "第 " + (lane + 1) + " 號";
-
-                _resultRows[position].text = string.Format(
-                    "{0}.   {1,-6}   {2:F2} 秒", position + 1, horseName, horse.FinishTime);
-                _resultRows[position].color = position == 0
-                    ? UiFactory.AccentColor
-                    : UiFactory.TextColor;
-                _resultUsage[position].text = ItemStyle.FormatUsage(usage, lane);
-            }
+            _resultBoard.ShowPlacings(race, finishOrder, _lineup, usage);
         }
 
         /// <summary>
-        /// 在名次面板下方列出本場獎項（結算時才有）。獎項名、玩家名、說明各自一欄，
-        /// 三欄用同樣的字級與行距，名稱長短不同也會逐行對齊。沒有獎項時清空。
+        /// 結算：換上全螢幕背景、彩帶與獎項卡片。傳 null 表示還在名次揭曉階段，維持只顯示名次。
         /// </summary>
         public void ShowAwards(IReadOnlyList<Award> awards)
         {
-            System.Text.StringBuilder titles = new System.Text.StringBuilder();
-            System.Text.StringBuilder names = new System.Text.StringBuilder();
-            System.Text.StringBuilder details = new System.Text.StringBuilder();
-
-            for (int i = 0; awards != null && i < awards.Count; i++)
+            if (awards == null)
             {
-                titles.Append(AwardText.Title(awards[i].Kind)).Append('\n');
-                names.Append(awards[i].Nickname).Append('\n');
-                details.Append(AwardText.Detail(awards[i])).Append('\n');
+                return;
             }
 
-            _awardTitles.text = titles.ToString();
-            _awardNames.text = names.ToString();
-            _awardDetails.text = details.ToString();
+            _resultBoard.ShowAwards(awards);
         }
 
-        /// <summary>獎項的一欄，三欄共用同一個上緣、字級與行距。</summary>
-        private Text AwardColumn(string name, float x, float width, Color color)
+        /// <summary>結算時看板上的「下一場 N 秒後開始」。</summary>
+        public void SetResultCountdown(double seconds)
         {
-            Text column = UiFactory.Label(_resultPanel, name, "", 30, TextAnchor.UpperLeft, color, FontStyle.Bold);
-            column.lineSpacing = 1.1f;
-            column.horizontalOverflow = HorizontalWrapMode.Overflow;
-            UiFactory.Place((RectTransform)column.transform, new Vector2(0f, 0f), new Vector2(0f, 0f),
-                new Vector2(x, 24f), new Vector2(width, AwardsHeight - 30f));
-            return column;
+            _resultBoard.SetCountdown(seconds);
         }
 
         public void HideResult()
         {
-            _resultPanel.gameObject.SetActive(false);
+            _resultBoard.Hide();
         }
 
         /// <summary>把名牌貼到每匹馬的頭上。用螢幕座標而非世界空間 Canvas，省下每匹馬一個 Canvas。</summary>
@@ -557,54 +516,6 @@ namespace HorseRace.View
                 new Vector2(1f, 0.5f), new Vector2(PanelWidth - 28f, -24f), new Vector2(PanelWidth - 400f, 30f));
 
             return row;
-        }
-
-        /// <summary>名次面板每一列的高度：名次一行、券的使用統計一行。</summary>
-        private const float ResultRowHeight = 98f;
-        private const float ResultPanelWidth = 1000f;
-
-        /// <summary>名次面板底部留給獎項的高度（最多四個獎項，一行一個）。</summary>
-        private const float AwardsHeight = 190f;
-
-        private void BuildResultPanel(int laneCount)
-        {
-            float height = 120f + laneCount * ResultRowHeight + AwardsHeight;
-
-            _resultPanel = UiFactory.Panel(_canvas.transform, "ResultPanel", UiFactory.PanelColorSolid);
-            UiFactory.Place(_resultPanel, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                new Vector2(0f, -30f), new Vector2(ResultPanelWidth, height));
-
-            _resultTitle = UiFactory.Label(_resultPanel, "Title", "名 次", 40,
-                TextAnchor.UpperCenter, UiFactory.AccentColor, FontStyle.Bold);
-            UiFactory.Place((RectTransform)_resultTitle.transform, new Vector2(0.5f, 1f),
-                new Vector2(0.5f, 1f), new Vector2(0f, -28f), new Vector2(ResultPanelWidth - 60f, 52f));
-
-            _resultRows = new Text[laneCount];
-            _resultUsage = new Text[laneCount];
-            for (int position = 0; position < laneCount; position++)
-            {
-                float top = 96f + position * ResultRowHeight;
-
-                _resultRows[position] = UiFactory.Label(_resultPanel, "Result_" + position, "", 34,
-                    TextAnchor.MiddleLeft, UiFactory.TextColor);
-                UiFactory.Place((RectTransform)_resultRows[position].transform,
-                    new Vector2(0f, 1f), new Vector2(0f, 1f),
-                    new Vector2(64f, -top), new Vector2(ResultPanelWidth - 128f, 48f));
-
-                // 誰對這匹馬用了什麼券：人多時自動縮字，不會超出面板
-                _resultUsage[position] = UiFactory.Label(_resultPanel, "Usage_" + position, "", 24,
-                    TextAnchor.MiddleLeft, UiFactory.MutedTextColor);
-                UiFactory.Place((RectTransform)_resultUsage[position].transform,
-                    new Vector2(0f, 1f), new Vector2(0f, 1f),
-                    new Vector2(96f, -(top + 44f)), new Vector2(ResultPanelWidth - 160f, 36f));
-                UiFactory.ShrinkToFit(_resultUsage[position], 14);
-            }
-
-            _awardTitles = AwardColumn("AwardTitles", 64f, 220f, UiFactory.AccentColor);
-            _awardNames = AwardColumn("AwardNames", 300f, 300f, UiFactory.TextColor);
-            _awardDetails = AwardColumn("AwardDetails", 620f, ResultPanelWidth - 680f, UiFactory.MutedTextColor);
-
-            _resultPanel.gameObject.SetActive(false);
         }
 
         /// <summary>

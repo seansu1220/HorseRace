@@ -13,7 +13,7 @@
     "StatJitter": 0.05,
     "FormSpread": 0.045,
 
-    "MaxDriveBonus": 0.6,
+    "MaxDriveBonus": 0.5,
     "StepsPerSecondForFullDrive": 30.0,
     "MaxStepsPerSecondPerPlayer": 10.0,
     "DriveDecaySeconds": 1.0,
@@ -37,8 +37,8 @@
   },
 
   "Items": {
-    "BoostMultiplier": 1.35,
-    "SlowMultiplier": 0.60,
+    "BoostMultiplier": 1.2,
+    "SlowMultiplier": 0.8,
     "DurationSeconds": 2.0,
     "CooldownSeconds": 0.0,
     "Cost": 5,

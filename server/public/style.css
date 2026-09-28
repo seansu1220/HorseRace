@@ -355,7 +355,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
 .verdict p { margin: 0; font-weight: 700; min-height: 22px; }
 .podium { display: grid; gap: 6px; }
 .place { display: grid; gap: 2px; padding: 7px 12px; border-radius: 10px; background: var(--panel); }
-.place-main { display: grid; grid-template-columns: 22px 8px 1fr auto auto; align-items: center; gap: 10px; }
+.place-main { display: grid; grid-template-columns: 28px 8px 1fr auto auto; align-items: center; gap: 10px; }
+/* 前三名的獎牌圖（img/medal_N.png），與數字名次佔同一欄 */
+img.medal { width: 28px; height: 28px; object-fit: contain; display: block; }
 .place .time { font-family: var(--num); font-size: 17px; font-weight: 600; color: var(--muted); }
 .place-usage { padding-left: 40px; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .place-usage b { font-weight: 700; }
@@ -369,10 +371,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
 .place .mine { font-size: 12px; color: var(--gold); font-weight: 700; }
 /* 獎項：獎項名、玩家名、說明各自一欄，名稱長短不同也逐行對齊 */
 .awards {
-  display: grid; grid-template-columns: max-content max-content 1fr; gap: 8px 14px; align-items: baseline;
+  display: grid; grid-template-columns: 30px max-content max-content 1fr; gap: 8px 12px; align-items: center;
   padding: 10px 12px; border-radius: 10px; background: rgba(228, 182, 74, .1);
 }
 .awards:empty { display: none; }
+.awards .a-icon { width: 30px; height: 30px; object-fit: contain; display: grid; place-items: center; color: var(--gold); }
 .awards .a-title { color: var(--gold); font-size: 14px; font-weight: 700; }
 .awards .a-name { font-weight: 700; }
 .awards .a-detail { color: var(--muted); font-size: 13px; }
@@ -385,7 +388,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--text); outl
 }
 .board { display: grid; }
 .board .entry {
-  display: grid; grid-template-columns: 24px 1fr auto; gap: 8px; padding: 8px 4px;
+  display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; padding: 8px 4px; align-items: center;
   border-bottom: 1px solid var(--line); font-size: 15px;
 }
 .board .entry:last-child { border-bottom: 0; }

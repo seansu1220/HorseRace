@@ -140,8 +140,8 @@ odds[i] = (1 - takeRate) / winRate[i]
 
 | 道具 | 效果 | 持續 | 冷卻 | 費用 |
 |---|---|---|---|---|
-| 加速券 Boost | 目標馬速度 ×1.35 | 2.0 s | 效果結束即可再買 | 5 籌碼 |
-| 減速券 Slow | 目標馬速度 ×0.60 | 2.0 s | 效果結束即可再買 | 5 籌碼 |
+| 加速券 Boost | 目標馬速度 ×1.2 | 2.0 s | 效果結束即可再買 | 5 籌碼 |
+| 減速券 Slow | 目標馬速度 ×0.8 | 2.0 s | 效果結束即可再買 | 5 籌碼 |
 | 障礙券 Obstacle | 目標馬前方 10 m 放柵欄，撞到後原地停住 | 2.0 s | 停住時間結束即可再買 | 10 籌碼 |
 
 附加規則（`Core/ItemShop`）：
@@ -190,7 +190,7 @@ odds[i] = (1 - takeRate) / winRate[i]
 - 全力門檻 `StepsPerSecondForFullDrive = 30`：一匹馬每秒要收到 30 步（所有替牠搖的人加總）才會滿
 - 每人每秒最多計入 `MaxStepsPerSecondPerPlayer = 10` 步（`Core/StepGate` 令牌桶），一個人最多推到約 1/3
 - 實測：一個人拼命搖 → 31%；三個人一起搖 → 90%
-- 全滿時目標速度 ×(1 + `MaxDriveBonus`) = ×1.6
+- 全滿時目標速度 ×(1 + `MaxDriveBonus`) = ×1.5（加快 50%）
 
 ---
 
@@ -205,7 +205,7 @@ WebSocket，JSON 文字幀。所有訊息都是 `{ "t": "<type>", ... }`。
 // 階段變更（lobby / idle / betting / racing / photo / settle）。附帶規則數值供手機顯示
 { "t":"phase", "phase":"betting", "endsAt":1757145600000, "race":12, "players":18,
   "horses":[{"id":0,"name":"赤焰","color":"#E74C3C","odds":3.4}],
-  "minBet":1, "itemCost":5, "itemSeconds":2, "itemCooldown":2, "boostX":1.35, "slowX":0.6,
+  "minBet":1, "itemCost":5, "itemSeconds":2, "itemCooldown":2, "boostX":1.2, "slowX":0.8,
   "obstacleCost":10, "obstacleSeconds":2, "obstacleCooldown":2 }
 
 // 賽況（賽中每秒 10 次）：驅動強度、進度、效果旗標（1 加速中、2 減速中、4 被絆住、8 前方有障礙物），
@@ -220,10 +220,12 @@ WebSocket，JSON 文字幀。所有訊息都是 `{ "t": "<type>", ... }`。
 { "t":"wallet", "to":"p1a2b3", "nick":"阿明", "balance":850, "bets":[{"lane":0,"amount":100}],
   "payout":0, "delta":0, "reject":"", "boostCool":1.4, "slowCool":0, "obstacleCool":0 }
 
-// 結果：名次、完賽秒數（與 order 一一對應）、排行、每匹馬被誰用了什麼券幾張
+// 結果：名次、完賽秒數（與 order 一一對應）、排行、每匹馬被誰用了什麼券幾張、本場獎項
+// awards.kind 即 Core 的 AwardKind 數值（0 券券富翁、1 最強啦啦隊、2 路霸、3 本場大贏家），手機用來挑圖示
 { "t":"result", "order":[2,0,3,1], "times":[16.31,16.88,17.40,18.02],
   "top":[{"name":"阿明","balance":1420}],
-  "usage":[{"lane":2,"kind":"boost","name":"阿明","count":2},{"lane":0,"kind":"obstacle","name":"小美","count":1}] }
+  "usage":[{"lane":2,"kind":"boost","name":"阿明","count":2},{"lane":0,"kind":"obstacle","name":"小美","count":1}],
+  "awards":[{"kind":0,"title":"券券富翁","name":"阿明","detail":"買了 3 張券"}] }
 ```
 
 ### Players → Host

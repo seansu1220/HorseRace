@@ -1,5 +1,56 @@
 # 變更紀錄
 
+## 2026-09-28 — 結算／獎項畫面換上正式美術、加速減速與能量數值調整
+
+### 問題描述
+
+1. 結算與獎項畫面只有純色面板與文字，太單調
+2. 數值調整：加速券 ×1.2、減速券 ×0.8、能量全滿時加速 +50%；遊戲總時間預設 10 分鐘（已是預設值）
+
+### 根本原因
+
+原本的名次面板是 `RaceHud` 內的一塊純色 Panel + 三欄文字，沒有任何圖像素材。
+
+### 修改的檔案與內容
+
+**素材**
+- 使用者以 Claude Cowork 產生的圖檔搬到 `Assets/Resources/Art/Results/`（執行期用 `Resources.Load` 載入）：
+  `result_bg`（全螢幕背景）、`panel_frame`（九宮格面板，邊框 96px）、`ribbon`（標題緞帶）、
+  `medal_1～3`、`award_*`（四種獎項圖示）、`confetti`（4×4 彩帶圖集）
+- 產生腳本搬到 `tools/art-source/horse_party_result_source/`；手機用的獎項圖示與獎牌複製到 `server/public/img/`
+- 原本的 `Assets/Image/` 空資料夾刪除
+
+**View**
+- `ResultArt.cs`（新增）：集中載入結算素材，九宮格與圖集在執行期切成 Sprite；缺檔只警告並回傳 null，改用純色
+- `ResultBoard.cs`（新增）：取代原本的名次面板
+  - 名次揭曉：金框面板＋緞帶標題，前三名顯示獎牌，每列有馬色塊、馬名、完賽秒數、用券統計，逐列滑入
+  - 結算：全螢幕背景淡入、彩帶飄落、獎項卡片（圖示／獎項／得主／說明）依序彈出，標題下方顯示「下一場 N 秒後開始」
+- `ConfettiRain.cs`（新增）：固定數量碎片循環使用的彩帶動畫
+- `RaceHud.cs`：移除舊的名次面板與三欄獎項，改為委派給 `ResultBoard`；新增 `SetResultCountdown()`。
+  看板建立在狀態列、播報、掃碼角落、公告與遊戲時間之前，結算背景不會蓋住它們
+- `RaceDirector.cs`：結算時把剩餘秒數送給看板；獎項訊息帶 `kind`
+
+**協定**
+- `Protocol/Messages.cs`：`AwardEntry` 新增 `kind`（`AwardKind` 數值），手機同一個 commit 一起改
+
+**手機頁**
+- 獎項改為四欄（圖示、獎項名、玩家名、說明），依 `kind` 顯示 `img/award_*.png`
+- 結果名次、籌碼排行與遊戲結束排名的前三名改用獎牌圖；圖片載入失敗時退回文字
+
+**數值（`ItemConfig` / `RaceConfig` / `race.json`）**
+- `BoostMultiplier` 1.35 → **1.2**、`SlowMultiplier` 0.6 → **0.8**、`MaxDriveBonus` 0.6 → **0.5**（能量全滿 +50%）
+
+**文件**
+- `THIRD_PARTY_NOTICES.md`：記錄結算素材的來源（專案自有）
+- `ARCHITECTURE.md`：`result.awards` 的 `kind` 欄位
+
+### 驗證
+
+- Core 單元測試 **260 項全綠**
+- Unity 自帶 Roslyn 編譯 Core／Net／View／Editor：零錯誤、零 C# 警告
+- 手機頁 UI 測試 **54 項全綠**（新增：獎項圖示依 kind 正確載入、前三名獎牌圖與第四名數字、四欄對齊）
+- 未能驗證：大螢幕看板的實際畫面與動畫（需要使用者按 Play）；PNG 的 `.meta` 由 Unity 開啟專案時產生
+
 ## 2026-09-28 — 遊戲總時間改為獨立面板
 
 ### 問題描述
