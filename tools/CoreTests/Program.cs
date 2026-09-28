@@ -1567,6 +1567,21 @@ namespace HorseRace.Tests
 
         private static void GameClockTests()
         {
+            Section("場景設定");
+
+            SceneryConfig scenery = GameConfig.CreateDefault().Scenery;
+            Check("預設是城市街道場景", scenery != null && scenery.CityStreet);
+            SceneryConfig wild = new SceneryConfig { KitScale = 0.0, LampSpacing = -5.0, CrossStreetSpacing = 5.0 };
+            wild.Validate();
+            Check("場景數值超出範圍會被夾回", wild.KitScale >= 1.0 && wild.LampSpacing >= 4.0 && wild.CrossStreetSpacing >= 30.0);
+            SceneryConfig noCrossing = new SceneryConfig { CrossStreetSpacing = -1.0 };
+            noCrossing.Validate();
+            Check("路口間距 0 以下代表不留路口", noCrossing.CrossStreetSpacing == 0.0);
+            GameConfig missingScenery = GameConfig.CreateDefault();
+            missingScenery.Scenery = null;
+            missingScenery.Validate();
+            Check("設定檔缺少 Scenery 區段時補上預設值", missingScenery.Scenery != null && missingScenery.Scenery.CityStreet);
+
             Section("零用金與遊戲時限");
 
             GameConfig defaults = DefaultConfig();

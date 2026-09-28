@@ -50,7 +50,16 @@
 
 ## 美術素材
 
-場景（賽道、馬匹）全部為程式生成（基本幾何體 + 執行期建立的材質），沒有使用外部素材。
+賽道本體與馬匹為程式生成（基本幾何體 + 執行期建立的材質）。
+
+### Kenney City Kit（Roads 2.1 / Commercial 2.1 / Suburban 2.0）
+
+- 用途：城市街道場景的大樓、摩天樓、路燈、紅綠燈、行道樹
+- 授權：**CC0 1.0**（公眾領域，可商用、可修改、免標示）
+- 來源：https://kenney.nl/assets/city-kit-roads 、 https://kenney.nl/assets/city-kit-commercial 、
+  https://kenney.nl/assets/city-kit-suburban
+- 檔案：`Assets/Resources/Scenery/Kenney/{Roads,Commercial,Suburban}/`（只取用到的 FBX 與各自的 `Textures/colormap.png`，
+  原始授權檔 `License.txt` 一併保留在各資料夾）
 
 ### 結算與獎項畫面素材（專案自有）
 

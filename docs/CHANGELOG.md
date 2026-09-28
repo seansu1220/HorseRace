@@ -1,5 +1,39 @@
 # 變更紀錄
 
+## 2026-09-29 — 城市街道場景（Kenney CC0）、名次面板最後一列壓到邊框
+
+### 問題描述
+
+1. 場景太陽春（草地＋一塊方形看台），希望有像樣的場景；使用者提議拿 Asset Store 的 City Package 的街道當賽道
+2. 實機截圖發現：名次揭曉面板的第 4 列壓在金框底部的內線與角飾上
+
+### 根本原因與決策
+
+1. 使用者的 City Package 無法從本機取得（沒下載過，也無法登入 Asset Store），而且專案的 GitHub repo 是公開的，
+   Asset Store 素材依授權不能公開散布。經使用者選擇，改用 **Kenney City Kit（CC0）**：可以進版控、換電腦不用重裝
+2. `ResultBoard.BottomPadding` 只有 34px，但面板框九宮格的內線與角飾約佔 70px
+
+### 修改的檔案與內容
+
+- `Assets/Resources/Scenery/Kenney/`（新增）：Kenney City Kit 的 FBX（14 種大樓、5 種摩天樓、路燈、紅綠燈、行道樹等）與貼圖、授權檔
+- `Core/Config/SceneryConfig.cs`（新增）＋ `GameConfig.Scenery`、`race.json` 的 `Scenery` 區段：
+  `CityStreet`（可切回草地賽馬場）、`KitScale`、`BuildingYawDegrees`、`LampSpacing`、`CrossStreetSpacing`、`Seed`
+- `View/CityScenery.cs`（新增）：柏油大馬路、兩側人行道（路緣石、地磚接縫）、每 70 單位一個十字路口（斑馬線、紅綠燈、往遠處延伸的橫向馬路）、
+  遠側一排大樓＋兩排摩天樓天際線、路燈與行道樹。近側只鋪平面，不擋鏡頭；場景物件不投影
+- `View/TrackBuilder.cs`：`Build(laneCount, scenery)`；城市模式路面改柏油色、不建草地與看台，改建城市街道
+- `View/RaceDirector.cs`：城市模式的太陽改從鏡頭側打光（原本從遠側打，大樓正面全是背光暗面）
+- `View/ResultBoard.cs`：`BottomPadding` 34 → 80
+- `Core/Config/PresentationConfig.cs`：`IntroSkippable` 註解更新（滑鼠不再略過）
+- 文件：`THIRD_PARTY_NOTICES.md`（Kenney CC0）、`ARCHITECTURE.md`（場景設定）
+
+### 驗證
+
+- Core 單元測試 **268 項全綠**（新增：預設城市場景、數值夾回、路口間距 0 以下＝不留路口、缺 Scenery 區段補預設值）
+- Unity 自帶 Roslyn 編譯：零錯誤、零 C# 警告
+- **實際建置 Windows 版並擷取畫面**（專案複本 batch build，設定為略過開場與等待入場）：
+  起跑、跟拍、衝線、名次揭曉、結算背景與彩帶都確認過；依截圖修正了太陽方向、近側人行道太亮、名次面板底部留白
+- FBX 的 `.meta` 取自 batch build 產生的版本一併提交，使用者開 Unity 時不會重新產生不同的 GUID
+
 ## 2026-09-28 — 零用金 100、遊戲 15 分鐘、開場動畫不再被滑鼠略過、入場名字牆只排一行
 
 ### 問題描述

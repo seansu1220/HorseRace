@@ -1,36 +1,48 @@
+using HorseRace.Core;
 using UnityEngine;
 
 namespace HorseRace.View
 {
     /// <summary>
-    /// 用 Unity 內建的基本幾何體搭出賽馬場。素材全部程式生成，沒有任何外部依賴，
-    /// 使用者提供正式素材後只要改這個檔案即可，不會動到 Core 或 Net。
+    /// 搭出賽道本身（路面、分道線、起終點、欄杆、距離標竿），再依設定包上周邊場景：
+    /// 城市街道（<see cref="CityScenery"/>，Kenney 模型）或原本的草地與看台（全用基本幾何體）。
+    /// 換素材只動 View，不會動到 Core 或 Net。
     /// </summary>
     public static class TrackBuilder
     {
         private static readonly Color GrassColor = new Color(0.22f, 0.42f, 0.20f);
         private static readonly Color TrackColor = new Color(0.62f, 0.44f, 0.29f);
+        private static readonly Color AsphaltColor = new Color(0.27f, 0.28f, 0.32f);
         private static readonly Color LineColor = new Color(0.94f, 0.94f, 0.90f);
         private static readonly Color RailColor = new Color(0.88f, 0.88f, 0.92f);
         private static readonly Color StandColor = new Color(0.34f, 0.36f, 0.44f);
 
-        /// <summary>建立整座賽馬場，回傳其根物件。</summary>
-        public static Transform Build(int laneCount)
+        /// <summary>建立整座賽道與周邊場景，回傳其根物件。</summary>
+        public static Transform Build(int laneCount, SceneryConfig scenery)
         {
             GameObject root = new GameObject("Racetrack");
 
             float span = TrackLayout.LaneSpan(laneCount);
             float length = TrackLayout.VisualLength;
             float centerX = length * 0.5f;
+            bool city = scenery != null && scenery.CityStreet;
 
-            BuildGrass(root.transform, centerX, length, span);
-            BuildTrackBed(root.transform, centerX, length, span);
+            if (city)
+            {
+                CityScenery.Build(root.transform, laneCount, scenery);
+            }
+            else
+            {
+                BuildGrass(root.transform, centerX, length, span);
+                BuildGrandstand(root.transform, centerX, length, span);
+            }
+
+            BuildTrackBed(root.transform, centerX, length, span, city ? AsphaltColor : TrackColor);
             BuildLaneDividers(root.transform, laneCount, centerX, length);
             BuildStartLine(root.transform, span);
             BuildFinishLine(root.transform, laneCount);
             BuildRails(root.transform, centerX, length, span);
             BuildDistanceMarkers(root.transform, span);
-            BuildGrandstand(root.transform, centerX, length, span);
 
             return root.transform;
         }
@@ -43,9 +55,9 @@ namespace HorseRace.View
             grass.transform.localScale = new Vector3((length + 80f) / 10f, 1f, (span + 90f) / 10f);
         }
 
-        private static void BuildTrackBed(Transform parent, float centerX, float length, float span)
+        private static void BuildTrackBed(Transform parent, float centerX, float length, float span, Color color)
         {
-            GameObject bed = CreatePrimitive(PrimitiveType.Cube, "TrackBed", parent, TrackColor);
+            GameObject bed = CreatePrimitive(PrimitiveType.Cube, "TrackBed", parent, color);
             bed.transform.localPosition = new Vector3(centerX, TrackLayout.BedHeight * 0.5f, 0f);
             bed.transform.localScale = new Vector3(length + 24f, TrackLayout.BedHeight, span);
         }

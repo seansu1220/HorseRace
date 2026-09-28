@@ -1155,9 +1155,9 @@ namespace HorseRace.View
         {
             int laneCount = _config.Roster.Count;
 
-            SetupEnvironment();
+            SetupEnvironment(_config.Scenery != null && _config.Scenery.CityStreet);
 
-            _track = TrackBuilder.Build(laneCount);
+            _track = TrackBuilder.Build(laneCount, _config.Scenery);
             _obstacles = ObstacleMarkers.Build(_track, laneCount);
             _horseViews = new HorseView[laneCount];
             for (int lane = 0; lane < laneCount; lane++)
@@ -1201,7 +1201,7 @@ namespace HorseRace.View
             _horseViews = null;
         }
 
-        private void SetupEnvironment()
+        private void SetupEnvironment(bool cityStreet)
         {
             _camera = Camera.main;
             if (_camera == null)
@@ -1225,8 +1225,9 @@ namespace HorseRace.View
             sun.color = new Color(1f, 0.97f, 0.90f);
             sun.intensity = 1.05f;
             sun.shadows = LightShadows.Soft;
-            // 從看台側後方打下來，馬的影子會落在鏡頭這一側，比較容易判斷前後
-            sun.transform.rotation = Quaternion.Euler(52f, 200f, 0f);
+            // 草地賽馬場：從看台側後方打下來，馬的影子會落在鏡頭這一側，比較容易判斷前後。
+            // 城市街道：改從鏡頭這一側打過去，大樓朝向賽道的正面才會被照亮，不然整排都是背光的暗面
+            sun.transform.rotation = cityStreet ? Quaternion.Euler(50f, 25f, 0f) : Quaternion.Euler(52f, 200f, 0f);
 
             RenderSettings.ambientMode = AmbientMode.Flat;
             RenderSettings.ambientLight = new Color(0.46f, 0.49f, 0.56f);

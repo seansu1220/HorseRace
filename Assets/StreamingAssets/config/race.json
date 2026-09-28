@@ -79,6 +79,15 @@
     "IntroMaxWaitSeconds": 30.0
   },
 
+  "Scenery": {
+    "CityStreet": true,
+    "KitScale": 10.0,
+    "BuildingYawDegrees": 180.0,
+    "LampSpacing": 18.0,
+    "CrossStreetSpacing": 70.0,
+    "Seed": 20260929
+  },
+
   "Bots": {
     "BetChance": 0.9,
     "MaxBetFraction": 0.3,

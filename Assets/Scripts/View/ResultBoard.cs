@@ -20,7 +20,8 @@ namespace HorseRace.View
         private const float RowHeight = 86f;
         private const float HeaderHeight = 176f;
         private const float AwardsAreaHeight = 300f;
-        private const float BottomPadding = 34f;
+        /// <summary>最後一列下方的留白。面板框的九宮格邊框有 96px，內側金線與角飾約佔 70px，少於這個會壓到最後一列。</summary>
+        private const float BottomPadding = 80f;
         private const float BoardCenterY = -40f;
 
         private const float CardWidth = 250f;

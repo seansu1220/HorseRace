@@ -20,7 +20,7 @@ namespace HorseRace.Core
         /// <summary>沒有影片時，預設開場畫面的長度（秒）。</summary>
         public double PlaceholderSeconds = 6.0;
 
-        /// <summary>主持人能否按空白鍵、Enter 或點滑鼠略過開場。</summary>
+        /// <summary>主持人能否按空白鍵或 Enter 略過開場（滑鼠點擊不算，避免點視窗時誤觸）。</summary>
         public bool IntroSkippable = true;
 
         /// <summary>

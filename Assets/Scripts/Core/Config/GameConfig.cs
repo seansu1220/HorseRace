@@ -24,6 +24,8 @@ namespace HorseRace.Core
 
         public BotConfig Bots = new BotConfig();
 
+        public SceneryConfig Scenery = new SceneryConfig();
+
         /// <summary>馬房名冊。每場從這裡取出全部馬匹出賽，並對能力值做隨機微調。</summary>
         public List<HorseConfig> Roster = new List<HorseConfig>();
 
@@ -106,6 +108,13 @@ namespace HorseRace.Core
             }
 
             Bots.Validate();
+
+            if (Scenery == null)
+            {
+                Scenery = new SceneryConfig();
+            }
+
+            Scenery.Validate();
 
             if (Roster == null)
             {
