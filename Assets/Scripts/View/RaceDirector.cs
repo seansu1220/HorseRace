@@ -1163,7 +1163,7 @@ namespace HorseRace.View
             _horseViews = new HorseView[laneCount];
             for (int lane = 0; lane < laneCount; lane++)
             {
-                _horseViews[lane] = HorseView.Create(_track, lane, laneCount, _loop.Lineup[lane]);
+                _horseViews[lane] = HorseView.Create(_track, lane, laneCount, _loop.Lineup[lane], _config.HorseModel);
             }
 
             _liveRanks = new int[laneCount];

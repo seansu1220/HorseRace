@@ -180,6 +180,28 @@ odds[i] = (1 - takeRate) / winRate[i]
   時間到時若正在下注、比賽或結算，就把這一場打完才進入 `GameOver`；若在兩場之間則直接結束。
   結束後大螢幕顯示最終排名前 10 名（按 R 重新開始），手機顯示自己的最終籌碼與名次
 
+### 馬匹模型（換成正式 3D 模型）
+
+`HorseView` 只管位置、道具光環與名牌掛點；長相與動作交給 `IHorseBody`：
+有設定模型就用 `HorseBodyModel`，沒有或載入失敗就退回程式生成的 `HorseBodyBlocky`（方塊馬）。
+
+**換模型的步驟**
+1. 把 FBX（含貼圖）放到 `Assets/Resources/Horses/`，例如 `Assets/Resources/Horses/horse.fbx`
+2. `race.json` 的 `HorseModel.DefaultModel` 填 `"Horses/horse"`（相對 Resources、不含副檔名）；
+   個別馬匹要不同模型時，在 `Roster` 那匹馬加 `"Model": "Horses/black-horse"`
+3. 開 Play 看方向：馬若倒著或橫著跑，調 `YawDegrees`（常見 0、90、180、−90）
+
+**其他設定（`HorseModel` 區段）**
+- `FitLength`：自動把身長縮放到這個長度（預設 3.2，約等於方塊馬含頭尾），0 則改用固定倍率 `Scale`
+- `TintMaterialKeyword`：材質名含這段文字的部位染成該馬代表色（例如騎師服材質叫 `Silk` 就填 `"Silk"`），空字串不染色
+- `RunClip`／`IdleClip`：FBX 裡的動畫片段名稱；`RunClip` 空白時自動挑第一個片段，`IdleClip` 空白時站在閘門裡用跑步動畫放到接近靜止
+- `MinAnimationSpeed`／`MaxAnimationSpeed`：跑步動畫依馬的即時速度在兩者之間變速
+
+**模型需求**
+- 用 Built-in Render Pipeline 的 Standard 材質（URP／HDRP 材質會變洋紅色）
+- 動畫用 Playables 在執行期直接播放，不需要建 Animator Controller；片段有沒有勾 Loop 都可以（程式自行循環）
+- Generic 或 Humanoid 骨架皆可；沒有動畫的模型只做上下起伏
+
 ### 起跑鏡頭
 
 - 待機與下注時從馬的正面拍起跑閘門（`Presentation.StartCameraFromFront`，false 則用側面全景）

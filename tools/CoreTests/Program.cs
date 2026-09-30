@@ -1581,6 +1581,31 @@ namespace HorseRace.Tests
             Check("起跑鏡頭秒數超出範圍會被夾回", wildCamera.StartCameraHoldSeconds >= 0.0
                 && wildCamera.StartCameraBlendSeconds >= 0.3);
 
+            Section("馬匹模型設定");
+
+            GameConfig modelDefaults = GameConfig.CreateDefault();
+            Check("預設沒有指定模型（用方塊馬）",
+                modelDefaults.HorseModel.ResolveModelPath(modelDefaults.Roster[0]) == "");
+            HorseModelConfig sharedModel = new HorseModelConfig { DefaultModel = "Horses/horse" };
+            HorseConfig plainHorse = new HorseConfig();
+            HorseConfig customHorse = new HorseConfig { Model = " Horses/black-horse " };
+            Check("沒有個別設定時用共用模型", sharedModel.ResolveModelPath(plainHorse) == "Horses/horse");
+            Check("個別馬匹的模型優先且去掉前後空白", sharedModel.ResolveModelPath(customHorse) == "Horses/black-horse");
+            Check("複製馬匹設定會帶上模型路徑", customHorse.Clone().Model == customHorse.Model);
+            HorseModelConfig wildModel = new HorseModelConfig
+            {
+                DefaultModel = null, FitLength = -1.0, Scale = 0.0, MinAnimationSpeed = 3.0, MaxAnimationSpeed = 1.0
+            };
+            wildModel.Validate();
+            Check("模型設定超出範圍會被夾回", wildModel.DefaultModel == "" && wildModel.FitLength >= 0.0
+                && wildModel.Scale > 0.0 && wildModel.MaxAnimationSpeed >= wildModel.MinAnimationSpeed);
+            GameConfig missingModel = GameConfig.CreateDefault();
+            missingModel.HorseModel = null;
+            missingModel.Roster[0].Model = null;
+            missingModel.Validate();
+            Check("設定檔缺少 HorseModel 區段或 Model 欄位時補上預設值",
+                missingModel.HorseModel != null && missingModel.Roster[0].Model == "");
+
             Section("場景設定");
 
             SceneryConfig scenery = GameConfig.CreateDefault().Scenery;

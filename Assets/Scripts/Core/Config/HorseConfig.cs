@@ -23,6 +23,12 @@ namespace HorseRace.Core
         /// <summary>波動 0~1。越高速度起伏越大，容易爆冷也容易崩盤。</summary>
         public double Volatility = 0.5;
 
+        /// <summary>
+        /// 這匹馬專用的 3D 模型路徑（相對 Resources、不含副檔名）。空字串＝用 <see cref="HorseModelConfig.DefaultModel"/>。
+        /// 純視覺，不影響賽果。
+        /// </summary>
+        public string Model = "";
+
         public HorseConfig Clone()
         {
             return new HorseConfig
@@ -31,7 +37,8 @@ namespace HorseRace.Core
                 ColorHex = ColorHex,
                 BaseSpeed = BaseSpeed,
                 Stamina = Stamina,
-                Volatility = Volatility
+                Volatility = Volatility,
+                Model = Model
             };
         }
 
@@ -48,6 +55,7 @@ namespace HorseRace.Core
                 ColorHex = "#FFFFFF";
             }
 
+            Model = Model ?? "";
             BaseSpeed = ConfigMath.Clamp(BaseSpeed, 1.0, 60.0);
             Stamina = ConfigMath.Clamp(Stamina, 0.0, 1.0);
             Volatility = ConfigMath.Clamp(Volatility, 0.0, 1.0);

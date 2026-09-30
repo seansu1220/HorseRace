@@ -92,6 +92,18 @@
     "Seed": 20260929
   },
 
+  "HorseModel": {
+    "DefaultModel": "",
+    "YawDegrees": 90.0,
+    "FitLength": 3.2,
+    "Scale": 1.0,
+    "TintMaterialKeyword": "",
+    "RunClip": "",
+    "IdleClip": "",
+    "MinAnimationSpeed": 0.6,
+    "MaxAnimationSpeed": 1.6
+  },
+
   "Bots": {
     "BetChance": 0.9,
     "MaxBetFraction": 0.3,

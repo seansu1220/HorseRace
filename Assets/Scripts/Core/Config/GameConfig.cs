@@ -26,6 +26,8 @@ namespace HorseRace.Core
 
         public SceneryConfig Scenery = new SceneryConfig();
 
+        public HorseModelConfig HorseModel = new HorseModelConfig();
+
         /// <summary>馬房名冊。每場從這裡取出全部馬匹出賽，並對能力值做隨機微調。</summary>
         public List<HorseConfig> Roster = new List<HorseConfig>();
 
@@ -115,6 +117,13 @@ namespace HorseRace.Core
             }
 
             Scenery.Validate();
+
+            if (HorseModel == null)
+            {
+                HorseModel = new HorseModelConfig();
+            }
+
+            HorseModel.Validate();
 
             if (Roster == null)
             {
