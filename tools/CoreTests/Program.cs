@@ -1567,6 +1567,20 @@ namespace HorseRace.Tests
 
         private static void GameClockTests()
         {
+            Section("起跑鏡頭設定");
+
+            PresentationConfig presentationDefaults = GameConfig.CreateDefault().Presentation;
+            Check("預設從正面拍起跑，停 1 秒、2.5 秒轉到側拍", presentationDefaults.StartCameraFromFront
+                && Math.Abs(presentationDefaults.StartCameraHoldSeconds - 1.0) < 1e-12
+                && Math.Abs(presentationDefaults.StartCameraBlendSeconds - 2.5) < 1e-12);
+            PresentationConfig wildCamera = new PresentationConfig
+            {
+                StartCameraHoldSeconds = -3.0, StartCameraBlendSeconds = 0.0
+            };
+            wildCamera.Validate();
+            Check("起跑鏡頭秒數超出範圍會被夾回", wildCamera.StartCameraHoldSeconds >= 0.0
+                && wildCamera.StartCameraBlendSeconds >= 0.3);
+
             Section("場景設定");
 
             SceneryConfig scenery = GameConfig.CreateDefault().Scenery;

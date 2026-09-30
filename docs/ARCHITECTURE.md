@@ -180,6 +180,14 @@ odds[i] = (1 - takeRate) / winRate[i]
   時間到時若正在下注、比賽或結算，就把這一場打完才進入 `GameOver`；若在兩場之間則直接結束。
   結束後大螢幕顯示最終排名前 10 名（按 R 重新開始），手機顯示自己的最終籌碼與名次
 
+### 起跑鏡頭
+
+- 待機與下注時從馬的正面拍起跑閘門（`Presentation.StartCameraFromFront`，false 則用側面全景）
+- 開跑後先在正面停 `StartCameraHoldSeconds`（1 秒）讓觀眾看到馬衝出閘門，
+  再花 `StartCameraBlendSeconds`（2.5 秒）沿弧線緩入緩出移到側面跟拍：側移（Z）比前後（X）快，
+  鏡頭先往鏡頭側拉開再轉到側面，不會直線穿過迎面跑來的馬群；轉場終點就是跟拍的即時目標，結束時無縫接上
+- 除錯擷取可加 `-captureInterval 0.5` 縮短截圖間隔，用來檢查轉場
+
 ### 場景：賽馬場（預設）與城市街道
 
 - `race.json` 的 `Scenery` 區段（`Core/Config/SceneryConfig`）：`CityStreet` 切換賽馬場（false，預設）／城市街道（true），

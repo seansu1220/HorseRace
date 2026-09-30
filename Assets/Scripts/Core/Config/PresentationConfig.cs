@@ -29,6 +29,15 @@ namespace HorseRace.Core
         /// </summary>
         public double IntroMaxWaitSeconds = 30.0;
 
+        /// <summary>待機與下注時從馬的正面拍起跑閘；false 則用側面的起跑閘全景。</summary>
+        public bool StartCameraFromFront = true;
+
+        /// <summary>開跑後鏡頭在正面停留幾秒（讓觀眾看到馬衝出閘門），才開始轉到側面跟拍。</summary>
+        public double StartCameraHoldSeconds = 1.0;
+
+        /// <summary>從正面轉到側面跟拍花幾秒。太短像瞬移，太長馬會先跑出畫面。</summary>
+        public double StartCameraBlendSeconds = 2.5;
+
         public const string DefaultIntroVideo = "intro/intro.mp4";
 
         public void Validate()
@@ -40,6 +49,8 @@ namespace HorseRace.Core
 
             PlaceholderSeconds = ConfigMath.Clamp(PlaceholderSeconds, 1.0, 60.0);
             IntroMaxWaitSeconds = ConfigMath.Clamp(IntroMaxWaitSeconds, 0.0, 180.0);
+            StartCameraHoldSeconds = ConfigMath.Clamp(StartCameraHoldSeconds, 0.0, 10.0);
+            StartCameraBlendSeconds = ConfigMath.Clamp(StartCameraBlendSeconds, 0.3, 10.0);
         }
     }
 }

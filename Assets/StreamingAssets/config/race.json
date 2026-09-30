@@ -76,7 +76,10 @@
     "IntroVideo": "intro/intro.mp4",
     "PlaceholderSeconds": 6.0,
     "IntroSkippable": true,
-    "IntroMaxWaitSeconds": 30.0
+    "IntroMaxWaitSeconds": 30.0,
+    "StartCameraFromFront": true,
+    "StartCameraHoldSeconds": 1.0,
+    "StartCameraBlendSeconds": 2.5
   },
 
   "Scenery": {

@@ -14,33 +14,38 @@ namespace HorseRace.View
     public sealed class DebugCapture : MonoBehaviour
     {
         private const string Flag = "-capture";
-        private const float IntervalSeconds = 4f;
-        private const int MaxShots = 24;
+
+        /// <summary>選用：<c>-captureInterval &lt;秒&gt;</c> 改變擷取間隔，例如檢查鏡頭轉場時用 0.5。</summary>
+        private const string IntervalFlag = "-captureInterval";
+        private const float DefaultIntervalSeconds = 4f;
+        private const int MaxShots = 60;
 
         private string _outputDirectory;
+        private float _intervalSeconds = DefaultIntervalSeconds;
         private float _nextCaptureTime;
         private int _index;
 
         /// <summary>命令列有指定輸出資料夾時，才把擷取元件掛到指定物件上。</summary>
         public static void AttachIfRequested(GameObject host)
         {
-            string directory = ReadDirectoryArgument();
+            string directory = ReadArgument(Flag);
             if (string.IsNullOrEmpty(directory))
             {
                 return;
             }
 
             DebugCapture capture = host.AddComponent<DebugCapture>();
-            capture.Initialize(directory);
+            capture.Initialize(directory, ReadInterval());
         }
 
-        private void Initialize(string directory)
+        private void Initialize(string directory, float intervalSeconds)
         {
             try
             {
                 Directory.CreateDirectory(directory);
                 _outputDirectory = directory;
-                _nextCaptureTime = Time.time + IntervalSeconds;
+                _intervalSeconds = intervalSeconds;
+                _nextCaptureTime = Time.time + _intervalSeconds;
                 Debug.Log("[DebugCapture] 已啟用畫面擷取，輸出至 " + directory);
             }
             catch (Exception error)
@@ -58,7 +63,7 @@ namespace HorseRace.View
                 return;
             }
 
-            _nextCaptureTime = Time.time + IntervalSeconds;
+            _nextCaptureTime = Time.time + _intervalSeconds;
             _index++;
 
             string path = Path.Combine(_outputDirectory, "frame-" + _index.ToString("D2") + ".png");
@@ -75,14 +80,29 @@ namespace HorseRace.View
             }
         }
 
-        private static string ReadDirectoryArgument()
+        private static float ReadInterval()
+        {
+            string text = ReadArgument(IntervalFlag);
+            float seconds;
+            if (!string.IsNullOrEmpty(text)
+                && float.TryParse(text, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out seconds)
+                && seconds >= 0.1f)
+            {
+                return seconds;
+            }
+
+            return DefaultIntervalSeconds;
+        }
+
+        private static string ReadArgument(string flag)
         {
             try
             {
                 string[] arguments = Environment.GetCommandLineArgs();
                 for (int i = 0; i < arguments.Length - 1; i++)
                 {
-                    if (string.Equals(arguments[i], Flag, StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(arguments[i], flag, StringComparison.OrdinalIgnoreCase))
                     {
                         return arguments[i + 1];
                     }

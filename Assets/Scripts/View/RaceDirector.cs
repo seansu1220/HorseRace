@@ -196,6 +196,7 @@ namespace HorseRace.View
 
                 case RacePhase.Racing:
                     _hud.HideResult();
+                    _cameraRig.BeginRaceTransition();
                     break;
 
                 case RacePhase.Photo:
@@ -1178,6 +1179,11 @@ namespace HorseRace.View
             }
 
             _cameraRig.Configure(_camera, laneCount);
+            PresentationConfig presentation = _config.Presentation;
+            _cameraRig.SetStartShot(presentation.StartCameraFromFront,
+                (float)presentation.StartCameraHoldSeconds, (float)presentation.StartCameraBlendSeconds);
+            _cameraRig.FrameGate();
+            _cameraRig.SnapToTarget();
         }
 
         private void TeardownScene()

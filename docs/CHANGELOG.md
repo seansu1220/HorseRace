@@ -1,5 +1,32 @@
 # 變更紀錄
 
+## 2026-10-01 — 起跑正面鏡頭與平滑轉場、繁體中文規則寫明
+
+### 問題描述
+
+1. 希望每場開始時先從馬的正面拍，開跑後再平滑移到側面跟拍的角度
+2. 回覆中途的進度短句常變成英文，違反 CLAUDE.md 的繁體中文規定
+
+### 根本原因
+
+2. 原規則「請用繁體中文與使用者對話」只被套用在正式回覆，工具呼叫之間的進度短句沿用了英文習慣
+
+### 修改的檔案與內容
+
+- `View/RaceCameraRig.cs`：起跑閘鏡位可選正面（預設）或側面；新增 `SetStartShot()`、`BeginRaceTransition()`，
+  開跑後停在正面一段時間，再以 SmoothStep 緩入緩出沿弧線（側移先走）轉到側面跟拍，轉場結束無縫接上跟拍
+- `View/RaceDirector.cs`：建場景時套用起跑鏡位設定；進入 Racing 階段時開始轉場
+- `Core/Config/PresentationConfig.cs`、`race.json`：`StartCameraFromFront`、`StartCameraHoldSeconds`（1.0）、`StartCameraBlendSeconds`（2.5）
+- `View/DebugCapture.cs`：新增 `-captureInterval <秒>` 參數，張數上限 24 → 60
+- `CLAUDE.md`（本專案與上層）：語言規則改為「所有給使用者看的文字一律繁體中文，含進度短句、提問選項、報告」
+- `docs/ARCHITECTURE.md`：起跑鏡頭說明
+
+### 驗證
+
+- Core 單元測試 **270 項全綠**（新增：起跑鏡頭預設值、秒數夾回範圍）
+- Unity 自帶 Roslyn 編譯：零錯誤、零 C# 警告
+- 實際建置並以 0.5 秒間隔擷取：下注時為正面鏡位、開跑後停約 1 秒、弧線轉場約 2.5 秒、平順接上側面跟拍
+
 ## 2026-10-01 — 真正的賽馬場場景（預設），城市街道改為選項
 
 ### 問題描述
