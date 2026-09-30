@@ -180,10 +180,14 @@ odds[i] = (1 - takeRate) / winRate[i]
   時間到時若正在下注、比賽或結算，就把這一場打完才進入 `GameOver`；若在兩場之間則直接結束。
   結束後大螢幕顯示最終排名前 10 名（按 R 重新開始），手機顯示自己的最終籌碼與名次
 
-### 場景：城市街道賽
+### 場景：賽馬場（預設）與城市街道
 
-- `race.json` 的 `Scenery` 區段（`Core/Config/SceneryConfig`）：`CityStreet` 切換城市街道／原本的草地賽馬場，
-  另有素材放大倍率、大樓朝向、路燈間距、路口間距、亂數種子
+- `race.json` 的 `Scenery` 區段（`Core/Config/SceneryConfig`）：`CityStreet` 切換賽馬場（false，預設）／城市街道（true），
+  `CrowdDensity` 觀眾密度（0～1），其餘為城市模式的素材放大倍率、大樓朝向、路燈間距、路口間距，以及共用的亂數種子
+- `View/RacecourseScenery`：割草紋草地、遠側樹籬與花壇、站位區觀眾、兩座有懸臂屋頂的階梯看台（坐滿觀眾、後方包廂窗、屋頂旗幟）、
+  會員會館、終點勝利柱（紅白圓牌），後方三排樹林（Kenney Nature Kit，CC0，樹葉改成自然綠）與遠山
+- `View/CrowdBuilder`：上千名觀眾以方塊組成，依顏色合併成少數網格（一種顏色一次繪製），不是每人一個 GameObject
+- `View/StartingGate`：起跑閘門，兩種場景都有；隔間只用細橫桿，側拍時不會擋住遠側跑道的馬
 - `View/CityScenery` 以 Kenney City Kit（CC0，`Assets/Resources/Scenery/Kenney/`）排出整條街：
   遠側（+Z）一排大樓＋兩排摩天樓天際線、人行道路燈與行道樹、每隔一段一個十字路口（斑馬線、紅綠燈）
 - 鏡頭固定在近側（−Z）低角度側拍，**近側只放平面的人行道**，不放任何會擋住馬的高物件

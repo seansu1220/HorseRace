@@ -1,5 +1,37 @@
 # 變更紀錄
 
+## 2026-10-01 — 真正的賽馬場場景（預設），城市街道改為選項
+
+### 問題描述
+
+使用者希望場景有「真的賽馬場」的感覺，而不是城市街道。
+
+### 修改的檔案與內容
+
+- `View/RacecourseScenery.cs`（新增）：
+  - 草地：外圍與賽道都是割草紋（賽道較亮），跟拍時條紋掠過有速度感
+  - 遠側：欄杆後一排花、修剪整齊的樹籬、站位區觀眾（終點附近最擠）
+  - 兩座階梯看台（大看台在終點前後 10 階、小看台 6 階）：每階坐滿觀眾、懸臂屋頂（淺色底面，避免仰角時一片黑）、
+    深綠屋簷與白邊、後方包廂玻璃窗、屋頂旗幟
+  - 終點後方的會員會館、終點的紅白勝利柱
+  - 後方三排樹林（Kenney Nature Kit，樹葉改成三種自然綠、樹幹改咖啡色）與遠山
+  - 近側（鏡頭側）只有平坦草地，不放任何會擋住馬的東西
+- `View/CrowdBuilder.cs`（新增）：觀眾由方塊組成（褲子、上衣、頭），依顏色合併成少數網格
+- `View/StartingGate.cs`（新增）：起跑閘門（綠色鋼架、白色號碼板、兩端輪子），隔間只用細橫桿不擋視線；兩種場景都有
+- `View/ProceduralTextures.cs`（新增）：執行期產生割草紋貼圖；`MaterialLibrary.Textured()` 貼圖材質
+- `View/TrackBuilder.cs`：預設建賽馬場（取代原本的草地＋方塊看台）、賽道改草皮割草紋、加起跑閘門
+- `View/RaceDirector.cs`：太陽固定從鏡頭側打光（看台與觀眾的正面才會亮）
+- `Core/Config/SceneryConfig.cs`、`race.json`：`CityStreet` 預設改 false（賽馬場）；新增 `CrowdDensity`（觀眾密度 0～1）
+- `Assets/Resources/Scenery/Kenney/Nature/`（新增）：Kenney Nature Kit 的樹與花 FBX（CC0），`.meta` 取自 batch build 產生的版本
+- 文件：`THIRD_PARTY_NOTICES.md`（Nature Kit）、`ARCHITECTURE.md`（場景說明）
+
+### 驗證
+
+- Core 單元測試 **268 項全綠**（場景設定測試改為預設賽馬場，並驗證觀眾密度夾回 0～1）
+- Unity 自帶 Roslyn 編譯：零錯誤、零 C# 警告
+- 實際建置 Windows 版並擷取畫面：起跑閘門、跟拍、衝線、名次揭曉都確認過；
+  依截圖修正了樹葉顏色（原色偏薄荷藍綠）、看台後牆一整片空白（加包廂窗）、閘門頂板遮住騎師（改成後側窄走道）
+
 ## 2026-09-29 — 城市街道場景（Kenney CC0）、名次面板最後一列壓到邊框
 
 ### 問題描述

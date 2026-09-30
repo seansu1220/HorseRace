@@ -4,18 +4,20 @@ using UnityEngine;
 namespace HorseRace.View
 {
     /// <summary>
-    /// 搭出賽道本身（路面、分道線、起終點、欄杆、距離標竿），再依設定包上周邊場景：
-    /// 城市街道（<see cref="CityScenery"/>，Kenney 模型）或原本的草地與看台（全用基本幾何體）。
+    /// 搭出賽道本身（路面、分道線、起跑閘門、終點、欄杆、距離標竿），再依設定包上周邊場景：
+    /// 賽馬場（<see cref="RacecourseScenery"/>，預設）或城市街道（<see cref="CityScenery"/>）。
     /// 換素材只動 View，不會動到 Core 或 Net。
     /// </summary>
     public static class TrackBuilder
     {
-        private static readonly Color GrassColor = new Color(0.22f, 0.42f, 0.20f);
-        private static readonly Color TrackColor = new Color(0.62f, 0.44f, 0.29f);
         private static readonly Color AsphaltColor = new Color(0.27f, 0.28f, 0.32f);
+        private static readonly Color TurfLight = new Color(0.42f, 0.70f, 0.31f);
+        private static readonly Color TurfDark = new Color(0.36f, 0.62f, 0.26f);
+
+        /// <summary>賽道草皮割草紋的寬度（世界單位）。</summary>
+        private const float TurfStripeWidth = 6f;
         private static readonly Color LineColor = new Color(0.94f, 0.94f, 0.90f);
         private static readonly Color RailColor = new Color(0.88f, 0.88f, 0.92f);
-        private static readonly Color StandColor = new Color(0.34f, 0.36f, 0.44f);
 
         /// <summary>建立整座賽道與周邊場景，回傳其根物件。</summary>
         public static Transform Build(int laneCount, SceneryConfig scenery)
@@ -33,13 +35,13 @@ namespace HorseRace.View
             }
             else
             {
-                BuildGrass(root.transform, centerX, length, span);
-                BuildGrandstand(root.transform, centerX, length, span);
+                RacecourseScenery.Build(root.transform, laneCount, scenery ?? new SceneryConfig());
             }
 
-            BuildTrackBed(root.transform, centerX, length, span, city ? AsphaltColor : TrackColor);
+            BuildTrackBed(root.transform, centerX, length, span, city);
             BuildLaneDividers(root.transform, laneCount, centerX, length);
             BuildStartLine(root.transform, span);
+            StartingGate.Build(root.transform, laneCount);
             BuildFinishLine(root.transform, laneCount);
             BuildRails(root.transform, centerX, length, span);
             BuildDistanceMarkers(root.transform, span);
@@ -47,19 +49,19 @@ namespace HorseRace.View
             return root.transform;
         }
 
-        private static void BuildGrass(Transform parent, float centerX, float length, float span)
+        private static void BuildTrackBed(Transform parent, float centerX, float length, float span, bool city)
         {
-            // Plane 的預設邊長是 10，所以 scale 要除以 10
-            GameObject grass = CreatePrimitive(PrimitiveType.Plane, "Grass", parent, GrassColor);
-            grass.transform.localPosition = new Vector3(centerX, 0f, 0f);
-            grass.transform.localScale = new Vector3((length + 80f) / 10f, 1f, (span + 90f) / 10f);
-        }
-
-        private static void BuildTrackBed(Transform parent, float centerX, float length, float span, Color color)
-        {
-            GameObject bed = CreatePrimitive(PrimitiveType.Cube, "TrackBed", parent, color);
+            GameObject bed = CreatePrimitive(PrimitiveType.Cube, "TrackBed", parent, AsphaltColor);
             bed.transform.localPosition = new Vector3(centerX, TrackLayout.BedHeight * 0.5f, 0f);
             bed.transform.localScale = new Vector3(length + 24f, TrackLayout.BedHeight, span);
+
+            if (!city)
+            {
+                // 草皮賽道：比外圍草地亮一點的割草紋，跟拍時一條條掠過就有速度感
+                Texture2D stripes = ProceduralTextures.Stripes("TrackTurf", TurfLight, TurfDark);
+                bed.GetComponent<Renderer>().sharedMaterial = MaterialLibrary.Textured(
+                    stripes, new Vector2((length + 24f) / (TurfStripeWidth * 2f), 1f));
+            }
         }
 
         private static void BuildLaneDividers(Transform parent, int laneCount, float centerX, float length)
@@ -160,23 +162,6 @@ namespace HorseRace.View
                     new Vector3(x, 1.1f, -(span * 0.5f + TrackLayout.RailOffset + 1.6f));
                 marker.transform.localScale = new Vector3(0.16f, 2.2f, 0.16f);
             }
-        }
-
-        private static void BuildGrandstand(Transform parent, float centerX, float length, float span)
-        {
-            // 遠端的看台只是為了讓畫面有景深，不需要細節。
-            //
-            // 位置要退得夠遠：鏡頭是低角度側拍，看台只要靠近或加屋頂，
-            // 從下方看到的就是一整片深色底面，會把整個上半畫面糊掉。
-            GameObject stand = CreatePrimitive(PrimitiveType.Cube, "Grandstand", parent, StandColor);
-            stand.transform.localPosition = new Vector3(centerX, 4f, span * 0.5f + 48f);
-            stand.transform.localScale = new Vector3(length * 0.8f, 8f, 12f);
-
-            // 頂緣壓一條亮色帶，讓它在天空前有輪廓而不是一塊死板的方形
-            GameObject cap = CreatePrimitive(
-                PrimitiveType.Cube, "GrandstandCap", parent, MaterialLibrary.Lighten(StandColor, 0.25f));
-            cap.transform.localPosition = new Vector3(centerX, 8.3f, span * 0.5f + 48f);
-            cap.transform.localScale = new Vector3(length * 0.8f, 0.6f, 12.6f);
         }
 
         /// <summary>

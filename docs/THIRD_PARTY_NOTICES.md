@@ -52,6 +52,13 @@
 
 賽道本體與馬匹為程式生成（基本幾何體 + 執行期建立的材質）。
 
+### Kenney Nature Kit 2.1
+
+- 用途：賽馬場後方的樹林、樹籬前的花
+- 授權：**CC0 1.0**
+- 來源：https://kenney.nl/assets/nature-kit
+- 檔案：`Assets/Resources/Scenery/Kenney/Nature/`（只取用到的樹與花的 FBX，原始授權檔 `License.txt` 一併保留）
+
 ### Kenney City Kit（Roads 2.1 / Commercial 2.1 / Suburban 2.0）
 
 - 用途：城市街道場景的大樓、摩天樓、路燈、紅綠燈、行道樹

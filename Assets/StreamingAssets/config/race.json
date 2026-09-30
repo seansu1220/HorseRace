@@ -80,7 +80,8 @@
   },
 
   "Scenery": {
-    "CityStreet": true,
+    "CityStreet": false,
+    "CrowdDensity": 0.85,
     "KitScale": 10.0,
     "BuildingYawDegrees": 180.0,
     "LampSpacing": 18.0,

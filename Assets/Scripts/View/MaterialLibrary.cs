@@ -41,6 +41,26 @@ namespace HorseRace.View
             return material;
         }
 
+        /// <summary>
+        /// 建立貼圖材質（不快取：每個呼叫端的貼圖與重複次數都不同，數量也很少）。
+        /// <paramref name="tiling"/> 是貼圖在物件表面重複的次數。
+        /// </summary>
+        public static Material Textured(Texture2D texture, Vector2 tiling, float smoothness = 0.05f)
+        {
+            Material material = new Material(ResolveShader());
+            material.name = "AutoTex_" + (texture != null ? texture.name : "none");
+            material.color = Color.white;
+            material.mainTexture = texture;
+            material.mainTextureScale = tiling;
+
+            if (material.HasProperty("_Glossiness"))
+            {
+                material.SetFloat("_Glossiness", smoothness);
+            }
+
+            return material;
+        }
+
         /// <summary>把 "#RRGGBB" 解析成 Color，失敗時回傳指定的替代色而不是讓畫面變黑。</summary>
         public static Color ParseHex(string hex, Color fallback)
         {
